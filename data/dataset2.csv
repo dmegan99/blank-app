@@ -1,5 +1,11 @@
-category,year3
-Electronics,1800
-Clothing,1100
-Food,2500
-Furniture,900
+category,year2,year3
+Technology,62,75
+Healthcare,51,58
+Finance,78,82
+Education,60,66
+Manufacturing,48,54
+Retail,73,69
+Energy,39,47
+Transportation,64,71
+Agriculture,35,42
+Entertainment,87,91

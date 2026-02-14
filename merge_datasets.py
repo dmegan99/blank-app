@@ -7,7 +7,7 @@ df1 = pd.read_csv(os.path.join(data_dir, "dataset1.csv"))
 df2 = pd.read_csv(os.path.join(data_dir, "dataset2.csv"))
 df3 = pd.read_csv(os.path.join(data_dir, "dataset3.csv"))
 
-combined = df1.merge(df2, on="category").merge(df3, on="category")
+combined = df1.merge(df2, on=["category", "year2"]).merge(df3, on=["category", "year3"])
 combined = combined[["category", "year1", "year2", "year3", "year4"]]
 
 output_path = os.path.join(data_dir, "combined-data.csv")

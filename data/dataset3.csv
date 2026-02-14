@@ -1,5 +1,11 @@
-category,year4
-Electronics,2100
-Clothing,1300
-Food,2800
-Furniture,1050
+category,year3,year4
+Technology,75,88
+Healthcare,58,67
+Finance,82,79
+Education,66,73
+Manufacturing,54,61
+Retail,69,65
+Energy,47,56
+Transportation,71,77
+Agriculture,42,50
+Entertainment,91,95
