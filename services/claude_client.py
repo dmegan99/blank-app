@@ -1,42 +1,46 @@
-"""AI client using DuckDuckGo AI Chat — no API key needed.
+"""AI client using Google Gemini API (free tier).
 
-Uses the duckduckgo-search library to access GPT-4o mini, Claude 3 Haiku,
-Llama, and Mixtral models for free.
+Requires GEMINI_API_KEY environment variable.
+Free tier: 15 requests/minute, 1M tokens/day.
 """
 
-from duckduckgo_search import DDGS
+import requests
+from config import GEMINI_API_KEY
 
-# Available models: "gpt-4o-mini", "claude-3-haiku-20240307", "llama-3.3-70b", "mixtral-8x7b"
-DEFAULT_MODEL = "gpt-4o-mini"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+DEFAULT_MODEL = "gemini-2.0-flash"
 
 
 def ask_ai(prompt: str, system: str = "", model: str = None) -> str | None:
-    """Send a prompt to the AI model and return the text response.
+    """Send a prompt to Gemini and return the text response."""
+    if not GEMINI_API_KEY:
+        return None
 
-    Args:
-        prompt: The user prompt
-        system: System instructions (prepended to prompt since DuckDuckGo
-                doesn't support system messages separately)
-        model: Model to use. Options: "gpt-4o-mini", "claude-3-haiku-20240307",
-               "llama-3.3-70b", "mixtral-8x7b"
-    """
     model = model or DEFAULT_MODEL
+    url = f"{GEMINI_API_URL}/{model}:generateContent?key={GEMINI_API_KEY}"
 
-    full_prompt = prompt
+    payload = {"contents": []}
+
     if system:
-        full_prompt = f"Instructions: {system}\n\n{prompt}"
+        payload["systemInstruction"] = {
+            "parts": [{"text": system}]
+        }
+
+    payload["contents"].append({
+        "role": "user",
+        "parts": [{"text": prompt}]
+    })
 
     try:
-        with DDGS() as ddgs:
-            response = ddgs.chat(full_prompt, model=model)
-            return response if response else None
+        resp = requests.post(url, json=payload, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+
+        candidates = data.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if parts:
+                return parts[0].get("text")
+        return None
     except Exception:
-        # Try with a fallback model if primary fails
-        if model != "mixtral-8x7b":
-            try:
-                with DDGS() as ddgs:
-                    response = ddgs.chat(full_prompt, model="mixtral-8x7b")
-                    return response if response else None
-            except Exception:
-                pass
         return None
