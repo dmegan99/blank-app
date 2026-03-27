@@ -1,22 +1,13 @@
 """AI client using DuckDuckGo AI Chat — no API key needed.
 
-Uses the duckai library to access GPT-4o mini, Claude 3 Haiku,
-Llama 3.3, and Mixtral models for free.
+Uses the duckduckgo-search library to access GPT-4o mini, Claude 3 Haiku,
+Llama, and Mixtral models for free.
 """
 
-from duckai import DuckAI
+from duckduckgo_search import DDGS
 
-# Available models: "gpt-4o-mini", "claude-3-haiku", "llama-3.3-70b", "mixtral-8x7b"
+# Available models: "gpt-4o-mini", "claude-3-haiku-20240307", "llama-3.3-70b", "mixtral-8x7b"
 DEFAULT_MODEL = "gpt-4o-mini"
-
-_client = None
-
-
-def _get_client():
-    global _client
-    if _client is None:
-        _client = DuckAI()
-    return _client
 
 
 def ask_ai(prompt: str, system: str = "", model: str = None) -> str | None:
@@ -26,27 +17,26 @@ def ask_ai(prompt: str, system: str = "", model: str = None) -> str | None:
         prompt: The user prompt
         system: System instructions (prepended to prompt since DuckDuckGo
                 doesn't support system messages separately)
-        model: Model to use. Options: "gpt-4o-mini", "claude-3-haiku",
+        model: Model to use. Options: "gpt-4o-mini", "claude-3-haiku-20240307",
                "llama-3.3-70b", "mixtral-8x7b"
     """
-    client = _get_client()
     model = model or DEFAULT_MODEL
 
-    # DuckDuckGo AI Chat doesn't have a separate system message,
-    # so we prepend it to the prompt
     full_prompt = prompt
     if system:
         full_prompt = f"Instructions: {system}\n\n{prompt}"
 
     try:
-        response = client.chat(full_prompt, model=model)
-        return response if response else None
-    except Exception as e:
+        with DDGS() as ddgs:
+            response = ddgs.chat(full_prompt, model=model)
+            return response if response else None
+    except Exception:
         # Try with a fallback model if primary fails
         if model != "mixtral-8x7b":
             try:
-                response = client.chat(full_prompt, model="mixtral-8x7b")
-                return response if response else None
+                with DDGS() as ddgs:
+                    response = ddgs.chat(full_prompt, model="mixtral-8x7b")
+                    return response if response else None
             except Exception:
                 pass
         return None
