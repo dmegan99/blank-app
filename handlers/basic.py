@@ -4,7 +4,7 @@ import time
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import BOT_VERSION, BOT_BUILD_TIME, FINNHUB_API_KEY, ANTHROPIC_API_KEY, load_watchlist
+from config import BOT_VERSION, BOT_BUILD_TIME, FINNHUB_API_KEY, load_watchlist
 
 _START_TIME = time.time()
 
@@ -29,9 +29,9 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     watchlist = load_watchlist()
 
     services = []
-    services.append(f"  SEC EDGAR: ✅ (no key needed)")
-    services.append(f"  Finnhub:   {'✅' if FINNHUB_API_KEY else '❌ (no key)'}")
-    services.append(f"  Anthropic: {'✅' if ANTHROPIC_API_KEY else '❌ (no key)'}")
+    services.append(f"  SEC EDGAR:  ✅ (no key needed)")
+    services.append(f"  Finnhub:    {'✅' if FINNHUB_API_KEY else '❌ (no key)'}")
+    services.append(f"  DuckDuckGo: ✅ (no key needed)")
 
     msg = (
         f"<b>Bot Status</b>\n"

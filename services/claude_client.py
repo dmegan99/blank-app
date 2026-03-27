@@ -1,7 +1,13 @@
-"""Anthropic Claude API client for AI-powered commands."""
+"""AI client using DuckDuckGo AI Chat — no API key needed.
 
-import anthropic
-from config import ANTHROPIC_API_KEY
+Uses the duckai library to access GPT-4o mini, Claude 3 Haiku,
+Llama 3.3, and Mixtral models for free.
+"""
+
+from duckai import DuckAI
+
+# Available models: "gpt-4o-mini", "claude-3-haiku", "llama-3.3-70b", "mixtral-8x7b"
+DEFAULT_MODEL = "gpt-4o-mini"
 
 _client = None
 
@@ -9,27 +15,38 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
-        if not ANTHROPIC_API_KEY:
-            return None
-        _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        _client = DuckAI()
     return _client
 
 
-def ask_claude(prompt: str, system: str = "", max_tokens: int = 4000, model: str = "claude-opus-4-6") -> str | None:
-    """Send a prompt to Claude and return the text response."""
+def ask_ai(prompt: str, system: str = "", model: str = None) -> str | None:
+    """Send a prompt to the AI model and return the text response.
+
+    Args:
+        prompt: The user prompt
+        system: System instructions (prepended to prompt since DuckDuckGo
+                doesn't support system messages separately)
+        model: Model to use. Options: "gpt-4o-mini", "claude-3-haiku",
+               "llama-3.3-70b", "mixtral-8x7b"
+    """
     client = _get_client()
-    if not client:
-        return None
+    model = model or DEFAULT_MODEL
 
-    kwargs = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}],
-    }
+    # DuckDuckGo AI Chat doesn't have a separate system message,
+    # so we prepend it to the prompt
+    full_prompt = prompt
     if system:
-        kwargs["system"] = system
+        full_prompt = f"Instructions: {system}\n\n{prompt}"
 
-    response = client.messages.create(**kwargs)
-    if response.content:
-        return response.content[0].text
-    return None
+    try:
+        response = client.chat(full_prompt, model=model)
+        return response if response else None
+    except Exception as e:
+        # Try with a fallback model if primary fails
+        if model != "mixtral-8x7b":
+            try:
+                response = client.chat(full_prompt, model="mixtral-8x7b")
+                return response if response else None
+            except Exception:
+                pass
+        return None
