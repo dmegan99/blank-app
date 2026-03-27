@@ -11,7 +11,7 @@ from config import GEMINI_API_KEY
 logger = logging.getLogger(__name__)
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 def ask_ai(prompt: str, system: str = "", model: str = None) -> str | None:
