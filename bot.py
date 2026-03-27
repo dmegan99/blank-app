@@ -1,6 +1,13 @@
-"""Telegram Finance Bot — Main entry point."""
+"""Telegram Finance Bot — Main entry point.
+
+Runs the Telegram bot alongside a lightweight HTTP server
+so it can be deployed as a free Render Web Service.
+"""
 
 import logging
+import threading
+import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram.ext import ApplicationBuilder, CommandHandler
 
 from config import TELEGRAM_BOT_TOKEN
@@ -18,12 +25,37 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class HealthHandler(BaseHTTPRequestHandler):
+    """Minimal HTTP handler so Render sees a live web service."""
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Finance bot is running")
+
+    def log_message(self, format, *args):
+        pass  # Suppress HTTP request logs
+
+
+def start_health_server():
+    """Start a background HTTP server for Render's health checks."""
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    logger.info(f"Health server listening on port {port}")
+    server.serve_forever()
+
+
 def main():
     if not TELEGRAM_BOT_TOKEN:
         print("ERROR: TELEGRAM_BOT_TOKEN not set.")
         print("Set it in your .env file or as an environment variable.")
         print("See .env.example for required configuration.")
         return
+
+    # Start health check server in background thread
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -48,7 +80,7 @@ def main():
     # Technical screening
     app.add_handler(CommandHandler("screen", screen))
 
-    # AI-powered commands (require ANTHROPIC_API_KEY)
+    # AI-powered commands (uses DuckDuckGo AI Chat, no key needed)
     app.add_handler(CommandHandler("brief", brief))
     app.add_handler(CommandHandler("nongaap", nongaap))
     app.add_handler(CommandHandler("x", x_search))
