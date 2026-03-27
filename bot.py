@@ -11,7 +11,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram.ext import ApplicationBuilder, CommandHandler
 
 from config import TELEGRAM_BOT_TOKEN
-from handlers.basic import ping, chatid, status
+from handlers.basic import help_cmd, ping, chatid, status
 from handlers.edgar import rev, margin, profit, bs
 from handlers.finnhub_cmds import insider, inst
 from handlers.valuation import val
@@ -60,6 +60,8 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     # Basic commands
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("start", help_cmd))
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("chatid", chatid))
     app.add_handler(CommandHandler("status", status))

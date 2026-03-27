@@ -9,6 +9,34 @@ from config import BOT_VERSION, BOT_BUILD_TIME, FINNHUB_API_KEY, load_watchlist
 _START_TIME = time.time()
 
 
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show available commands."""
+    msg = (
+        "<b>Available Commands</b>\n\n"
+        "<b>Basics</b>\n"
+        "/help           — Show this message\n"
+        "/ping           — Health check\n"
+        "/chatid         — Current chat ID\n"
+        "/status         — Bot version &amp; services\n\n"
+        "<b>SEC EDGAR (no key needed)</b>\n"
+        "/rev TICKER     — Quarterly revenue (12Q)\n"
+        "/margin TICKER  — Quarterly margins\n"
+        "/profit TICKER  — Quarterly net income\n"
+        "/bs TICKER      — Balance sheet &amp; cash flow\n\n"
+        "<b>Finnhub (needs API key)</b>\n"
+        "/insider TICKER — Insider transactions (12M)\n"
+        "/inst TICKER    — Institutional ownership\n\n"
+        "<b>Valuation &amp; Screening</b>\n"
+        "/val TICKER     — Valuation snapshot\n"
+        "/screen         — Technical screen (watchlist)\n\n"
+        "<b>AI-Powered (free, no key)</b>\n"
+        "/brief          — Morning market briefing\n"
+        "/nongaap TICKER — Non-GAAP from latest 8-K\n"
+        "/x QUERY [hrs]  — X/Twitter signal digest\n"
+    )
+    await update.message.reply_text(msg, parse_mode="HTML")
+
+
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Health check."""
     await update.message.reply_text("pong")
