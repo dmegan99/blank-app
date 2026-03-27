@@ -29,10 +29,18 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>Valuation &amp; Screening</b>\n"
         "/val TICKER     — Valuation snapshot\n"
         "/screen         — Technical screen (watchlist)\n\n"
-        "<b>AI-Powered (free Gemini API)</b>\n"
+        "<b>AI-Powered (Gemini)</b>\n"
         "/brief          — Morning market briefing\n"
         "/nongaap TICKER — Non-GAAP from latest 8-K\n"
         "/x QUERY [hrs]  — X/Twitter signal digest\n"
+        "/summarize TICKER — Full financial summary\n"
+        "/thesis TICKER  — Bull/bear investment thesis\n"
+        "/news TICKER    — Recent news digest\n\n"
+        "<b>Portfolio &amp; Watchlist</b>\n"
+        "/watchlist      — View watchlist\n"
+        "/watchlist add TICKER — Add to watchlist\n"
+        "/watchlist remove TICKER — Remove\n"
+        "/portfolio T1 T2 ... — Portfolio tracker\n"
     )
     await update.message.reply_text(msg, parse_mode="HTML")
 

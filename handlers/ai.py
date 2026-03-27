@@ -1,4 +1,4 @@
-"""AI-powered command handlers: /brief, /nongaap, /x."""
+"""AI-powered command handlers: /brief, /nongaap, /x, /summarize, /thesis, /news."""
 
 import re
 import requests
@@ -7,7 +7,12 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from services.claude_client import ask_ai
-from utils.formatters import escape_html
+from services.edgar import (
+    get_quarterly_revenue, get_quarterly_margins,
+    get_quarterly_profit, _format_fiscal_quarter,
+)
+from services.yfinance_client import get_stock_info
+from utils.formatters import escape_html, fmt_millions, fmt_pct
 from config import EDGAR_USER_AGENT, GEMINI_API_KEY
 
 
@@ -17,10 +22,39 @@ def _get_ticker(context: ContextTypes.DEFAULT_TYPE) -> str | None:
     return context.args[0].upper()
 
 
+def _check_ai(update):
+    """Check if AI is available, return error message if not."""
+    if not GEMINI_API_KEY:
+        return "❌ GEMINI_API_KEY not configured"
+    return None
+
+
+async def _send_ai_response(update, title, prompt, system=""):
+    """Common pattern: send prompt to AI, handle errors, send response."""
+    response = ask_ai(prompt, system=system)
+    if not response:
+        await update.message.reply_text("AI returned no response.")
+        return
+    if response.startswith("[API Error") or response.startswith("[Error"):
+        await update.message.reply_text(f"AI error: {response}")
+        return
+
+    if len(response) > 3900:
+        response = response[:3900] + "\n\n[truncated]"
+
+    await update.message.reply_text(
+        f"<b>{title}</b>\n\n{escape_html(response)}",
+        parse_mode="HTML",
+    )
+
+
+# --- /brief ---
+
 async def brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Generate AI morning briefing."""
-    if not GEMINI_API_KEY:
-        await update.message.reply_text("❌ GEMINI_API_KEY not configured")
+    err = _check_ai(update)
+    if err:
+        await update.message.reply_text(err)
         return
     await update.message.reply_text("Generating morning briefing... (15-30s)")
 
@@ -40,19 +74,10 @@ async def brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Format it as a clean, readable briefing suitable for a Telegram message."
     )
 
-    response = ask_ai(prompt, system=system)
-    if not response:
-        await update.message.reply_text("Failed to generate briefing. AI service may be unavailable.")
-        return
+    await _send_ai_response(update, f"📋 Morning Briefing — {today}", prompt, system)
 
-    if len(response) > 3900:
-        response = response[:3900] + "\n\n[truncated]"
 
-    await update.message.reply_text(
-        f"📋 <b>Morning Briefing — {today}</b>\n\n{escape_html(response)}",
-        parse_mode="HTML",
-    )
-
+# --- /nongaap ---
 
 async def nongaap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Non-GAAP metrics from latest 8-K via AI analysis."""
@@ -61,8 +86,9 @@ async def nongaap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /nongaap TICKER")
         return
 
-    if not GEMINI_API_KEY:
-        await update.message.reply_text("❌ GEMINI_API_KEY not configured")
+    err = _check_ai(update)
+    if err:
+        await update.message.reply_text(err)
         return
     await update.message.reply_text(f"Fetching latest 8-K for {ticker} and analyzing... (15-30s)")
 
@@ -84,19 +110,10 @@ async def nongaap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{filing_text[:6000]}"
     )
 
-    response = ask_ai(prompt, system=system)
-    if not response:
-        await update.message.reply_text("Failed to analyze 8-K filing. AI service may be unavailable.")
-        return
+    await _send_ai_response(update, f"{ticker} — Non-GAAP Metrics (Latest 8-K)", prompt, system)
 
-    if len(response) > 3900:
-        response = response[:3900] + "\n\n[truncated]"
 
-    await update.message.reply_text(
-        f"<b>{ticker} — Non-GAAP Metrics (Latest 8-K)</b>\n\n{escape_html(response)}",
-        parse_mode="HTML",
-    )
-
+# --- /x ---
 
 async def x_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """X/Twitter search with AI digest."""
@@ -110,8 +127,9 @@ async def x_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         hours = int(args.pop())
     query = " ".join(args)
 
-    if not GEMINI_API_KEY:
-        await update.message.reply_text("❌ GEMINI_API_KEY not configured")
+    err = _check_ai(update)
+    if err:
+        await update.message.reply_text(err)
         return
     await update.message.reply_text(f"Analyzing X discourse for '{query}' ({hours}h window)... (15-30s)")
 
@@ -137,20 +155,205 @@ async def x_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Format as a comprehensive signal digest."
     )
 
-    response = ask_ai(prompt, system=system)
-    if not response:
-        await update.message.reply_text("Failed to generate X digest. AI returned no response.")
+    await _send_ai_response(update, f"{query} — X Signal Digest ({hours}h)", prompt, system)
+
+
+# --- /summarize ---
+
+async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """AI summary combining revenue, margins, valuation into one view."""
+    ticker = _get_ticker(context)
+    if not ticker:
+        await update.message.reply_text("Usage: /summarize TICKER")
         return
-    if response.startswith("[API Error") or response.startswith("[Error"):
-        await update.message.reply_text(f"AI error: {response}")
+
+    err = _check_ai(update)
+    if err:
+        await update.message.reply_text(err)
+        return
+    await update.message.reply_text(f"Building financial summary for {ticker}... (15-30s)")
+
+    # Gather data from multiple sources
+    data_parts = []
+
+    # Revenue
+    rev_data = get_quarterly_revenue(ticker, num_quarters=8)
+    if rev_data:
+        rev_lines = []
+        for q in rev_data[:6]:
+            label = _format_fiscal_quarter(q)
+            rev_str = fmt_millions(q["val"])
+            yoy = fmt_pct(q["yoy"]) if q.get("yoy") is not None else "N/A"
+            rev_lines.append(f"  {label}: {rev_str} (YoY: {yoy})")
+        data_parts.append("QUARTERLY REVENUE:\n" + "\n".join(rev_lines))
+
+    # Margins
+    margin_data = get_quarterly_margins(ticker, num_quarters=4)
+    if margin_data and margin_data.get("quarters"):
+        margin_lines = []
+        for q in margin_data["quarters"][:4]:
+            label = _format_fiscal_quarter(q)
+            gm = f"{q['gross_margin']:.1f}%" if q.get("gross_margin") is not None else "N/A"
+            om = f"{q['op_margin']:.1f}%" if q.get("op_margin") is not None else "N/A"
+            nm = f"{q['net_margin']:.1f}%" if q.get("net_margin") is not None else "N/A"
+            margin_lines.append(f"  {label}: Gross {gm} | Op {om} | Net {nm}")
+        data_parts.append("QUARTERLY MARGINS:\n" + "\n".join(margin_lines))
+
+    # Valuation from yfinance
+    info = get_stock_info(ticker)
+    if info:
+        price = info.get("regularMarketPrice") or info.get("currentPrice") or info.get("previousClose")
+        pe = info.get("trailingPE")
+        fwd_pe = info.get("forwardPE")
+        mkt_cap = info.get("marketCap")
+        rev_growth = info.get("revenueGrowth")
+
+        val_lines = []
+        if price:
+            val_lines.append(f"  Price: ${price:.2f}")
+        if mkt_cap:
+            val_lines.append(f"  Market Cap: ${mkt_cap/1e9:.1f}B" if mkt_cap >= 1e9 else f"  Market Cap: ${mkt_cap/1e6:.0f}M")
+        if pe:
+            val_lines.append(f"  P/E (TTM): {pe:.1f}x")
+        if fwd_pe:
+            val_lines.append(f"  P/E (Fwd): {fwd_pe:.1f}x")
+        if rev_growth is not None:
+            val_lines.append(f"  Revenue Growth: {rev_growth*100:+.1f}%")
+        if val_lines:
+            data_parts.append("VALUATION:\n" + "\n".join(val_lines))
+
+    if not data_parts:
+        await update.message.reply_text(f"Could not fetch financial data for {ticker}")
         return
 
-    if len(response) > 3900:
-        response = response[:3900] + "\n\n[truncated]"
+    data_block = "\n\n".join(data_parts)
 
-    header = f"<b>{query} — X Signal Digest ({hours}h)</b>"
-    await update.message.reply_text(f"{header}\n\n{escape_html(response)}", parse_mode="HTML")
+    system = (
+        "You are a senior equity research analyst. Provide a concise executive summary "
+        "of a company's financial health based on the data provided. Cover:\n"
+        "1. Revenue trajectory and growth quality\n"
+        "2. Margin trends (expanding/contracting and why it matters)\n"
+        "3. Valuation assessment (cheap/fair/expensive vs growth)\n"
+        "4. Key takeaway in one sentence\n"
+        "Be direct and specific. Use numbers from the data. Keep it under 300 words."
+    )
 
+    prompt = f"Provide an executive financial summary for {ticker} based on this data:\n\n{data_block}"
+
+    await _send_ai_response(update, f"{ticker} — Financial Summary", prompt, system)
+
+
+# --- /thesis ---
+
+async def thesis(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bull/bear case generated by AI."""
+    ticker = _get_ticker(context)
+    if not ticker:
+        await update.message.reply_text("Usage: /thesis TICKER")
+        return
+
+    err = _check_ai(update)
+    if err:
+        await update.message.reply_text(err)
+        return
+    await update.message.reply_text(f"Building bull/bear thesis for {ticker}... (15-30s)")
+
+    # Gather financial context
+    data_parts = []
+
+    rev_data = get_quarterly_revenue(ticker, num_quarters=8)
+    if rev_data:
+        latest = rev_data[0]
+        oldest = rev_data[-1]
+        data_parts.append(f"Latest quarterly revenue: {fmt_millions(latest['val'])}")
+        if latest.get("yoy") is not None:
+            data_parts.append(f"YoY revenue growth: {fmt_pct(latest['yoy'])}")
+        accel_count = sum(1 for q in rev_data if q.get("accel") == "↑")
+        data_parts.append(f"Revenue accelerating in {accel_count}/{len(rev_data)} quarters")
+
+    margin_data = get_quarterly_margins(ticker, num_quarters=4)
+    if margin_data and margin_data.get("quarters"):
+        q = margin_data["quarters"][0]
+        if q.get("gross_margin") is not None:
+            data_parts.append(f"Latest gross margin: {q['gross_margin']:.1f}%")
+        if q.get("net_margin") is not None:
+            data_parts.append(f"Latest net margin: {q['net_margin']:.1f}%")
+
+    profit_data = get_quarterly_profit(ticker, num_quarters=4)
+    if profit_data:
+        if profit_data[0].get("yoy") is not None:
+            data_parts.append(f"Net income YoY growth: {fmt_pct(profit_data[0]['yoy'])}")
+
+    info = get_stock_info(ticker)
+    if info:
+        pe = info.get("trailingPE")
+        fwd_pe = info.get("forwardPE")
+        if pe:
+            data_parts.append(f"P/E (TTM): {pe:.1f}x")
+        if fwd_pe:
+            data_parts.append(f"P/E (Fwd): {fwd_pe:.1f}x")
+
+    context_str = "\n".join(data_parts) if data_parts else "No specific data available."
+
+    system = (
+        "You are a senior equity analyst writing an investment thesis. "
+        "Present a balanced BULL CASE and BEAR CASE for the stock. "
+        "For each case, provide 3-4 specific arguments with reasoning. "
+        "End with a 'Key Risk' and 'Key Catalyst' section. "
+        "Be specific and use the financial data provided. "
+        "Format with clear headers: ## Bull Case, ## Bear Case, ## Key Risk, ## Key Catalyst"
+    )
+
+    prompt = (
+        f"Write a bull/bear investment thesis for {ticker}.\n\n"
+        f"Financial context:\n{context_str}\n\n"
+        f"Provide specific, data-driven arguments for both sides."
+    )
+
+    await _send_ai_response(update, f"{ticker} — Investment Thesis", prompt, system)
+
+
+# --- /news ---
+
+async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recent news digest via AI."""
+    ticker = _get_ticker(context)
+    if not ticker:
+        await update.message.reply_text("Usage: /news TICKER")
+        return
+
+    err = _check_ai(update)
+    if err:
+        await update.message.reply_text(err)
+        return
+    await update.message.reply_text(f"Generating news digest for {ticker}... (15-30s)")
+
+    # Get company name from yfinance
+    info = get_stock_info(ticker)
+    company_name = info.get("longName") or info.get("shortName") or ticker
+
+    system = (
+        "You are a financial news analyst. Provide a concise news digest covering "
+        "the most important recent developments for this company. Cover:\n"
+        "- Major business developments and announcements\n"
+        "- Earnings highlights (if recent)\n"
+        "- Analyst upgrades/downgrades\n"
+        "- Industry trends affecting the company\n"
+        "- Any regulatory or legal developments\n"
+        "Be specific with dates and numbers. Format as bullet points. "
+        "Flag anything that could materially move the stock."
+    )
+
+    prompt = (
+        f"Provide a news digest for {company_name} ({ticker}) covering "
+        f"the most recent and significant developments. "
+        f"Focus on material, stock-moving news."
+    )
+
+    await _send_ai_response(update, f"{ticker} — News Digest", prompt, system)
+
+
+# --- Helper ---
 
 def _fetch_latest_8k(ticker: str) -> str | None:
     """Fetch the latest 8-K filing text from EDGAR."""

@@ -16,7 +16,8 @@ from handlers.edgar import rev, margin, profit, bs
 from handlers.finnhub_cmds import insider, inst
 from handlers.valuation import val
 from handlers.screen import screen
-from handlers.ai import brief, nongaap, x_search
+from handlers.ai import brief, nongaap, x_search, summarize, thesis, news
+from handlers.portfolio import watchlist, portfolio
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -82,10 +83,17 @@ def main():
     # Technical screening
     app.add_handler(CommandHandler("screen", screen))
 
-    # AI-powered commands (uses DuckDuckGo AI Chat, no key needed)
+    # AI-powered commands (uses Gemini API)
     app.add_handler(CommandHandler("brief", brief))
     app.add_handler(CommandHandler("nongaap", nongaap))
     app.add_handler(CommandHandler("x", x_search))
+    app.add_handler(CommandHandler("summarize", summarize))
+    app.add_handler(CommandHandler("thesis", thesis))
+    app.add_handler(CommandHandler("news", news))
+
+    # Watchlist & portfolio
+    app.add_handler(CommandHandler("watchlist", watchlist))
+    app.add_handler(CommandHandler("portfolio", portfolio))
 
     logger.info("Bot starting... polling for messages")
     app.run_polling()
