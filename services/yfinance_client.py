@@ -33,6 +33,27 @@ def get_stock_info(ticker: str) -> dict:
     return info
 
 
+def get_news(ticker: str, max_items: int = 10) -> list[dict]:
+    """Get recent news headlines for a ticker from yfinance."""
+    try:
+        stock = yf.Ticker(ticker)
+        news = stock.news
+        if not news:
+            return []
+        results = []
+        for item in news[:max_items]:
+            content = item.get("content", {})
+            results.append({
+                "title": content.get("title", ""),
+                "publisher": content.get("provider", {}).get("displayName", ""),
+                "link": content.get("canonicalUrl", {}).get("url", ""),
+                "published": content.get("pubDate", ""),
+            })
+        return results
+    except Exception:
+        return []
+
+
 def get_price_history(ticker: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
     """Get historical price data."""
     stock = yf.Ticker(ticker)

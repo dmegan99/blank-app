@@ -11,7 +11,7 @@ from services.edgar import (
     get_quarterly_revenue, get_quarterly_margins,
     get_quarterly_profit, _format_fiscal_quarter,
 )
-from services.yfinance_client import get_stock_info
+from services.yfinance_client import get_stock_info, get_news
 from utils.formatters import escape_html, fmt_millions, fmt_pct
 from config import EDGAR_USER_AGENT, GEMINI_API_KEY, load_watchlist
 
@@ -332,28 +332,47 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ticker = context.args[0].upper()
-    await update.message.reply_text(f"Generating news digest for {ticker}... (15-30s)")
+    await update.message.reply_text(f"Fetching news for {ticker}... (15-30s)")
 
     info = get_stock_info(ticker)
     company_name = info.get("longName") or info.get("shortName") or ticker
 
+    # Fetch real headlines from yfinance
+    headlines = get_news(ticker, max_items=15)
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    headlines_text = ""
+    if headlines:
+        lines = []
+        for h in headlines:
+            pub = h.get("published", "")[:10] if h.get("published") else ""
+            lines.append(f"- [{pub}] {h['title']} ({h['publisher']})")
+        headlines_text = "\n".join(lines)
+
     system = (
-        "You are a financial news analyst. Provide a concise news digest covering "
-        "the most important recent developments for this company. Cover:\n"
-        "- Major business developments and announcements\n"
-        "- Earnings highlights (if recent)\n"
-        "- Analyst upgrades/downgrades\n"
-        "- Industry trends affecting the company\n"
-        "- Any regulatory or legal developments\n"
-        "Be specific with dates and numbers. Format as bullet points. "
-        "Flag anything that could materially move the stock."
+        "You are a financial news analyst. Today's date is " + today + ". "
+        "Analyze the provided news headlines and summarize the most important "
+        "developments for this company. For each key story:\n"
+        "- Explain what happened and why it matters for the stock\n"
+        "- Note the potential impact (bullish/bearish/neutral)\n"
+        "- Flag anything that could materially move the stock with ⚠️\n"
+        "If the headlines are sparse, supplement with your knowledge of very recent events. "
+        "Format as bullet points grouped by theme. Be concise."
     )
 
-    prompt = (
-        f"Provide a news digest for {company_name} ({ticker}) covering "
-        f"the most recent and significant developments. "
-        f"Focus on material, stock-moving news."
-    )
+    if headlines_text:
+        prompt = (
+            f"Here are the latest news headlines for {company_name} ({ticker}):\n\n"
+            f"{headlines_text}\n\n"
+            f"Provide a concise news digest analyzing these headlines. "
+            f"Focus on what matters most for the stock."
+        )
+    else:
+        prompt = (
+            f"Provide a news digest for {company_name} ({ticker}) as of {today}. "
+            f"Cover the most recent and significant developments. "
+            f"Focus on material, stock-moving news."
+        )
 
     await _send_ai_response(update, f"{ticker} — News Digest", prompt, system)
 
@@ -366,28 +385,49 @@ async def _news_watchlist(update: Update):
         return
 
     await update.message.reply_text(
-        f"Generating news digest for {len(tickers)} watchlist tickers... (30-60s)"
+        f"Fetching news for {len(tickers)} watchlist tickers... (30-60s)"
     )
 
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Fetch real headlines for each ticker
+    all_headlines = []
+    for ticker in tickers:
+        headlines = get_news(ticker, max_items=5)
+        if headlines:
+            lines = [f"\n{ticker}:"]
+            for h in headlines:
+                pub = h.get("published", "")[:10] if h.get("published") else ""
+                lines.append(f"  - [{pub}] {h['title']} ({h['publisher']})")
+            all_headlines.append("\n".join(lines))
+
+    headlines_block = "\n".join(all_headlines) if all_headlines else ""
     ticker_list = ", ".join(tickers)
 
     system = (
         "You are a financial news analyst covering a portfolio of stocks. "
-        "Provide a consolidated news digest covering the most important recent "
-        "developments across ALL the tickers listed. For each company with notable news:\n"
+        "Today's date is " + today + ". "
+        "Analyze the provided news headlines and produce a consolidated digest. "
+        "For each company with notable news:\n"
         "- Use the ticker as a header\n"
-        "- List 1-3 key developments as bullet points\n"
-        "- Flag anything that could materially move the stock with ⚠️\n"
-        "Skip tickers with no notable recent news. "
+        "- Summarize the 1-2 most important stories and their stock impact\n"
+        "- Flag anything material with ⚠️\n"
+        "Skip tickers with no notable news. "
         "End with a 'Market-Wide Themes' section covering trends affecting multiple names. "
-        "Be concise — 1-2 bullets per ticker max."
+        "Be concise."
     )
 
-    prompt = (
-        f"Provide a consolidated news digest for these watchlist tickers: {ticker_list}\n\n"
-        f"Cover only the most material, stock-moving developments for each. "
-        f"Skip tickers with nothing notable. End with cross-cutting themes."
-    )
+    if headlines_block:
+        prompt = (
+            f"Here are recent news headlines for my watchlist:\n{headlines_block}\n\n"
+            f"Provide a consolidated news digest. Focus on the most material stories. "
+            f"Skip tickers with routine/non-material news."
+        )
+    else:
+        prompt = (
+            f"Provide a consolidated news digest for these watchlist tickers: {ticker_list}\n\n"
+            f"Cover only the most material, stock-moving developments as of {today}."
+        )
 
     await _send_ai_response(update, f"Watchlist News — {len(tickers)} tickers", prompt, system)
 
