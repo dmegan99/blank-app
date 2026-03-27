@@ -13,7 +13,7 @@ from services.edgar import (
 )
 from services.yfinance_client import get_stock_info
 from utils.formatters import escape_html, fmt_millions, fmt_pct
-from config import EDGAR_USER_AGENT, GEMINI_API_KEY
+from config import EDGAR_USER_AGENT, GEMINI_API_KEY, load_watchlist
 
 
 def _get_ticker(context: ContextTypes.DEFAULT_TYPE) -> str | None:
@@ -316,19 +316,24 @@ async def thesis(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- /news ---
 
 async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Recent news digest via AI."""
-    ticker = _get_ticker(context)
-    if not ticker:
-        await update.message.reply_text("Usage: /news TICKER")
+    """Recent news digest via AI. Supports /news TICKER or /news watchlist."""
+    if not context.args:
+        await update.message.reply_text("Usage: /news TICKER  or  /news watchlist")
         return
 
     err = _check_ai(update)
     if err:
         await update.message.reply_text(err)
         return
+
+    # Check if user wants watchlist news
+    if context.args[0].lower() == "watchlist":
+        await _news_watchlist(update)
+        return
+
+    ticker = context.args[0].upper()
     await update.message.reply_text(f"Generating news digest for {ticker}... (15-30s)")
 
-    # Get company name from yfinance
     info = get_stock_info(ticker)
     company_name = info.get("longName") or info.get("shortName") or ticker
 
@@ -351,6 +356,40 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await _send_ai_response(update, f"{ticker} — News Digest", prompt, system)
+
+
+async def _news_watchlist(update: Update):
+    """Generate a combined news digest for the entire watchlist."""
+    tickers = load_watchlist()
+    if not tickers:
+        await update.message.reply_text("Watchlist is empty. Use /watchlist add TICKER")
+        return
+
+    await update.message.reply_text(
+        f"Generating news digest for {len(tickers)} watchlist tickers... (30-60s)"
+    )
+
+    ticker_list = ", ".join(tickers)
+
+    system = (
+        "You are a financial news analyst covering a portfolio of stocks. "
+        "Provide a consolidated news digest covering the most important recent "
+        "developments across ALL the tickers listed. For each company with notable news:\n"
+        "- Use the ticker as a header\n"
+        "- List 1-3 key developments as bullet points\n"
+        "- Flag anything that could materially move the stock with ⚠️\n"
+        "Skip tickers with no notable recent news. "
+        "End with a 'Market-Wide Themes' section covering trends affecting multiple names. "
+        "Be concise — 1-2 bullets per ticker max."
+    )
+
+    prompt = (
+        f"Provide a consolidated news digest for these watchlist tickers: {ticker_list}\n\n"
+        f"Cover only the most material, stock-moving developments for each. "
+        f"Skip tickers with nothing notable. End with cross-cutting themes."
+    )
+
+    await _send_ai_response(update, f"Watchlist News — {len(tickers)} tickers", prompt, system)
 
 
 # --- Helper ---
