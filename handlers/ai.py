@@ -139,7 +139,10 @@ async def x_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     response = ask_ai(prompt, system=system)
     if not response:
-        await update.message.reply_text("Failed to generate X digest. AI service may be unavailable.")
+        await update.message.reply_text("Failed to generate X digest. AI returned no response.")
+        return
+    if response.startswith("[API Error") or response.startswith("[Error"):
+        await update.message.reply_text(f"AI error: {response}")
         return
 
     if len(response) > 3900:
