@@ -4,7 +4,7 @@ import time
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import BOT_VERSION, BOT_BUILD_TIME, FINNHUB_API_KEY, GROQ_API_KEY, load_watchlist
+from config import BOT_VERSION, BOT_BUILD_TIME, FINNHUB_API_KEY, GEMINI_API_KEY, load_watchlist
 
 _START_TIME = time.time()
 
@@ -29,7 +29,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>Valuation &amp; Screening</b>\n"
         "/val TICKER     — Valuation snapshot\n"
         "/screen         — Technical screen (watchlist)\n\n"
-        "<b>AI-Powered (free Groq API)</b>\n"
+        "<b>AI-Powered (free Gemini API)</b>\n"
         "/brief          — Morning market briefing\n"
         "/nongaap TICKER — Non-GAAP from latest 8-K\n"
         "/x QUERY [hrs]  — X/Twitter signal digest\n"
@@ -59,7 +59,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     services = []
     services.append(f"  SEC EDGAR:  ✅ (no key needed)")
     services.append(f"  Finnhub:    {'✅' if FINNHUB_API_KEY else '❌ (no key)'}")
-    services.append(f"  Groq AI:    {'✅' if GROQ_API_KEY else '❌ (no key)'}")
+    services.append(f"  Gemini AI:  {'✅' if GEMINI_API_KEY else '❌ (no key)'}")
 
     msg = (
         f"<b>Bot Status</b>\n"

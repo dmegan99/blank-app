@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 from services.claude_client import ask_ai
 from utils.formatters import escape_html
-from config import EDGAR_USER_AGENT, GROQ_API_KEY
+from config import EDGAR_USER_AGENT, GEMINI_API_KEY
 
 
 def _get_ticker(context: ContextTypes.DEFAULT_TYPE) -> str | None:
@@ -19,8 +19,8 @@ def _get_ticker(context: ContextTypes.DEFAULT_TYPE) -> str | None:
 
 async def brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Generate AI morning briefing."""
-    if not GROQ_API_KEY:
-        await update.message.reply_text("❌ GROQ_API_KEY not configured")
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("❌ GEMINI_API_KEY not configured")
         return
     await update.message.reply_text("Generating morning briefing... (15-30s)")
 
@@ -61,8 +61,8 @@ async def nongaap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /nongaap TICKER")
         return
 
-    if not GROQ_API_KEY:
-        await update.message.reply_text("❌ GROQ_API_KEY not configured")
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("❌ GEMINI_API_KEY not configured")
         return
     await update.message.reply_text(f"Fetching latest 8-K for {ticker} and analyzing... (15-30s)")
 
@@ -110,8 +110,8 @@ async def x_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         hours = int(args.pop())
     query = " ".join(args)
 
-    if not GROQ_API_KEY:
-        await update.message.reply_text("❌ GROQ_API_KEY not configured")
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("❌ GEMINI_API_KEY not configured")
         return
     await update.message.reply_text(f"Analyzing X discourse for '{query}' ({hours}h window)... (15-30s)")
 

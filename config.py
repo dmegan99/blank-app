@@ -6,7 +6,7 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 BOT_VERSION = "1.0.0"
 BOT_BUILD_TIME = "2026-03-27"
