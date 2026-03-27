@@ -1,5 +1,6 @@
 """Valuation snapshot handler: /val."""
 
+import traceback
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -15,6 +16,15 @@ def _get_ticker(context: ContextTypes.DEFAULT_TYPE) -> str | None:
     return context.args[0].upper()
 
 
+def _safe_get(info, *keys, default=None):
+    """Try multiple keys, return first non-None value."""
+    for key in keys:
+        val = info.get(key)
+        if val is not None:
+            return val
+    return default
+
+
 async def val(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Valuation snapshot with multiples, targets, consensus."""
     ticker = _get_ticker(context)
@@ -24,50 +34,76 @@ async def val(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"Fetching valuation data for {ticker}...")
 
-    info = get_stock_info(ticker)
-    if not info or not info.get("regularMarketPrice"):
+    try:
+        info = get_stock_info(ticker)
+    except Exception as e:
+        await update.message.reply_text(f"Error fetching data: {e}")
+        return
+
+    if not info:
         await update.message.reply_text(f"No data found for {ticker}")
         return
 
-    price = info.get("regularMarketPrice") or info.get("currentPrice", 0)
-    mkt_cap = info.get("marketCap", 0)
-    ev = info.get("enterpriseValue", 0)
-    beta = info.get("beta")
-    avg_vol = info.get("averageDailyVolume10Day", 0)
-    fye_month = info.get("lastFiscalYearEnd")
-    high_52 = info.get("fiftyTwoWeekHigh", 0)
-    low_52 = info.get("fiftyTwoWeekLow", 0)
-    div_yield = info.get("dividendYield")
+    # Try multiple keys for price — yfinance versions vary
+    price = _safe_get(info, "regularMarketPrice", "currentPrice",
+                      "regularMarketPreviousClose", "previousClose", default=0)
+
+    if not price:
+        # Fallback: get price from history
+        try:
+            hist = get_price_history(ticker, period="5d")
+            if not hist.empty:
+                price = float(hist["Close"].iloc[-1])
+        except Exception:
+            pass
+
+    if not price:
+        await update.message.reply_text(f"No price data found for {ticker}")
+        return
+
+    mkt_cap = _safe_get(info, "marketCap", default=0)
+    ev = _safe_get(info, "enterpriseValue", default=0)
+    beta = _safe_get(info, "beta")
+    avg_vol = _safe_get(info, "averageDailyVolume10Day", "averageVolume10days",
+                        "averageVolume", default=0)
+    high_52 = _safe_get(info, "fiftyTwoWeekHigh", default=0)
+    low_52 = _safe_get(info, "fiftyTwoWeekLow", default=0)
+    div_yield = _safe_get(info, "dividendYield", "trailingAnnualDividendYield")
 
     # Get RSI
-    hist = get_price_history(ticker, period="3mo")
-    rsi = calculate_rsi(hist["Close"]) if not hist.empty else None
+    rsi = None
+    try:
+        hist = get_price_history(ticker, period="3mo")
+        if not hist.empty:
+            rsi = calculate_rsi(hist["Close"])
+    except Exception:
+        pass
 
     # Multiples
-    pe_trailing = info.get("trailingPE")
-    pe_forward = info.get("forwardPE")
-    pb = info.get("priceToBook")
-    ps_trailing = info.get("priceToSalesTrailing12Months")
-    ev_rev = info.get("enterpriseToRevenue")
+    pe_trailing = _safe_get(info, "trailingPE")
+    pe_forward = _safe_get(info, "forwardPE")
+    pb = _safe_get(info, "priceToBook")
+    ps_trailing = _safe_get(info, "priceToSalesTrailing12Months")
+    ev_rev = _safe_get(info, "enterpriseToRevenue")
 
     # EPS growth
-    eps_trailing = info.get("trailingEps")
-    eps_forward = info.get("forwardEps")
+    eps_trailing = _safe_get(info, "trailingEps")
+    eps_forward = _safe_get(info, "forwardEps")
     eps_growth = None
     if eps_trailing and eps_forward and eps_trailing > 0:
         eps_growth = ((eps_forward - eps_trailing) / eps_trailing) * 100
 
-    rev_growth = info.get("revenueGrowth")
+    rev_growth = _safe_get(info, "revenueGrowth")
     if rev_growth is not None:
         rev_growth *= 100
 
     # Short interest
-    short_pct = info.get("shortPercentOfFloat")
+    short_pct = _safe_get(info, "shortPercentOfFloat")
     if short_pct and short_pct < 1:
         short_pct *= 100
-    shares_short = info.get("sharesShort", 0)
-    short_ratio = info.get("shortRatio")
-    float_shares = info.get("floatShares", 0)
+    shares_short = _safe_get(info, "sharesShort", default=0)
+    short_ratio = _safe_get(info, "shortRatio")
+    float_shares = _safe_get(info, "floatShares", default=0)
 
     # Build header section
     mkt_cap_str = _fmt_large_number(mkt_cap)
@@ -113,13 +149,16 @@ async def val(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Analyst consensus from Finnhub
     consensus_line = ""
     if FINNHUB_API_KEY:
-        recs = get_recommendation_trends(ticker)
-        if recs:
-            latest = recs[0]
-            buy = latest.get("buy", 0) + latest.get("strongBuy", 0)
-            hold = latest.get("hold", 0)
-            sell = latest.get("sell", 0) + latest.get("strongSell", 0)
-            consensus_line = f"Consensus: {buy} Buy | {hold} Hold | {sell} Sell"
+        try:
+            recs = get_recommendation_trends(ticker)
+            if recs:
+                latest = recs[0]
+                buy = latest.get("buy", 0) + latest.get("strongBuy", 0)
+                hold = latest.get("hold", 0)
+                sell = latest.get("sell", 0) + latest.get("strongSell", 0)
+                consensus_line = f"Consensus: {buy} Buy | {hold} Hold | {sell} Sell"
+        except Exception:
+            pass
 
     # Assemble
     body_parts = [

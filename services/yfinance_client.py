@@ -10,8 +10,26 @@ def get_stock_info(ticker: str) -> dict:
     stock = yf.Ticker(ticker)
     try:
         info = stock.info
+        if not info or info.get("trailingPegRatio") is None and len(info) < 5:
+            # Possibly empty/failed — try fast_info as fallback
+            fi = stock.fast_info
+            info = dict(info) if info else {}
+            info.setdefault("regularMarketPrice", getattr(fi, "last_price", None))
+            info.setdefault("marketCap", getattr(fi, "market_cap", None))
+            info.setdefault("fiftyTwoWeekHigh", getattr(fi, "year_high", None))
+            info.setdefault("fiftyTwoWeekLow", getattr(fi, "year_low", None))
     except Exception:
-        info = {}
+        # Last resort: try fast_info only
+        try:
+            fi = stock.fast_info
+            info = {
+                "regularMarketPrice": getattr(fi, "last_price", None),
+                "marketCap": getattr(fi, "market_cap", None),
+                "fiftyTwoWeekHigh": getattr(fi, "year_high", None),
+                "fiftyTwoWeekLow": getattr(fi, "year_low", None),
+            }
+        except Exception:
+            info = {}
     return info
 
 
