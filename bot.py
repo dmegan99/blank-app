@@ -21,6 +21,7 @@ from handlers.screen import screen
 from handlers.ai import brief, nongaap, x_search, summarize, thesis, news
 from handlers.portfolio import watchlist, portfolio
 from handlers.analysis import compare, dcf, peers, earnings, dividend, alert
+from handlers.memory import themes_cmd, note_cmd, feedback_cmd
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -122,6 +123,11 @@ def main():
     app.add_handler(CommandHandler("earnings", earnings))
     app.add_handler(CommandHandler("dividend", dividend))
     app.add_handler(CommandHandler("alert", alert))
+
+    # Memory & intelligence
+    app.add_handler(CommandHandler("themes", themes_cmd))
+    app.add_handler(CommandHandler("note", note_cmd))
+    app.add_handler(CommandHandler("feedback", feedback_cmd))
 
     # Watchlist & portfolio
     app.add_handler(CommandHandler("watchlist", watchlist))

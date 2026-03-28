@@ -1,0 +1,20 @@
+[
+  {
+    "name": "AI Infrastructure",
+    "description": "GPU demand, data center buildout, AI chip competition",
+    "tickers": ["NVDA", "AMD", "AVGO", "MSFT", "GOOGL"],
+    "added": "2026-03-28"
+  },
+  {
+    "name": "Mag 7 Rotation",
+    "description": "Relative performance shifts among mega-cap tech",
+    "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"],
+    "added": "2026-03-28"
+  },
+  {
+    "name": "Rate Cut Cycle",
+    "description": "Fed policy path and impact on growth vs value",
+    "tickers": ["JPM", "V", "HD"],
+    "added": "2026-03-28"
+  }
+]

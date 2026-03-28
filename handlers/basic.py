@@ -4,7 +4,7 @@ import time
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import BOT_VERSION, BOT_BUILD_TIME, FINNHUB_API_KEY, GEMINI_API_KEY, load_watchlist
+from config import BOT_VERSION, BOT_BUILD_TIME, FINNHUB_API_KEY, GEMINI_API_KEY, load_watchlist, load_themes, load_notes
 
 _START_TIME = time.time()
 
@@ -43,6 +43,14 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/thesis TICKER  — Bull/bear investment thesis\n"
         "/news TICKER    — Recent news digest\n"
         "/news watchlist — News for all watchlist\n\n"
+        "<b>Memory &amp; Intelligence</b>\n"
+        "/themes         — View theme watchlist\n"
+        "/themes add NAME — Track a theme\n"
+        "/themes scan    — AI scan for emerging themes\n"
+        "/note TICKER text — Save a note/observation\n"
+        "/note TICKER    — View notes\n"
+        "/note list      — All subjects with notes\n"
+        "/feedback good/bad — Help bot learn\n\n"
         "<b>Portfolio &amp; Alerts</b>\n"
         "/watchlist      — View watchlist\n"
         "/watchlist add TICKER — Add to watchlist\n"
@@ -73,6 +81,8 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uptime_str = f"{hours}h {minutes}m {secs}s"
 
     watchlist = load_watchlist()
+    themes = load_themes()
+    notes = load_notes()
 
     services = []
     services.append(f"  SEC EDGAR:  ✅ (no key needed)")
@@ -86,6 +96,8 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Built:     {BOT_BUILD_TIME}\n"
         f"Uptime:    {uptime_str}\n"
         f"Watchlist: {len(watchlist)} tickers\n"
+        f"Themes:    {len(themes)} tracked\n"
+        f"Notes:     {sum(len(v) for v in notes.values())} across {len(notes)} subjects\n"
         f"\nServices:\n"
         + "\n".join(services)
         + f"</pre>"

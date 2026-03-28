@@ -15,6 +15,7 @@ from services.edgar import (
 from services.yfinance_client import get_stock_info, get_news
 from utils.formatters import escape_html, fmt_millions, fmt_pct
 from config import EDGAR_USER_AGENT, GEMINI_API_KEY, load_watchlist
+from handlers.memory import get_full_context, auto_note
 
 ET = ZoneInfo("America/New_York")
 
@@ -182,14 +183,21 @@ async def brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Use bullet points. Include tickers. Keep it scannable and actionable."
     )
 
+    # Pull memory context (themes + notes)
+    memory_ctx = get_full_context(tickers=watchlist[:10])
+    memory_block = f"\n\n{memory_ctx}" if memory_ctx else ""
+
     prompt = (
         f"Generate a {slot_desc} market briefing for {today} ({time_str}).\n\n"
         f"Search the web for the latest financial news, market moves, economic data, "
         f"and corporate events as of right now.\n"
         f"{market_data}"
-        f"{watchlist_context}\n\n"
+        f"{watchlist_context}"
+        f"{memory_block}\n\n"
         f"Combine the above real data with your web search results into a concise, "
-        f"actionable briefing. Include specific numbers, prices, and percentages."
+        f"actionable briefing. Include specific numbers, prices, and percentages.\n"
+        f"If any of the ACTIVE THEMES above are relevant to today's news, highlight them. "
+        f"If you notice EMERGING THEMES not yet tracked, flag them at the end."
     )
 
     await _send_ai_response(
@@ -282,14 +290,21 @@ async def x_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"from today ({today}) or the last {hours} hours. Do not fabricate posts or handles."
     )
 
+    # Memory context for X search
+    x_memory = get_full_context(ticker=query.upper() if len(query.split()) == 1 else None)
+    mem_block = f"\n\n{x_memory}" if x_memory else ""
+
     prompt = (
         f"Search the web for recent X/Twitter posts, discussions, and financial commentary "
         f"about '{query}' from the last {hours} hours (as of {today} {time_str}).\n\n"
         f"Search for: '{query} site:x.com OR site:twitter.com' and "
         f"'{query} stock sentiment {today}'\n\n"
+        f"{mem_block}\n"
         f"Create a Signal Digest with real, sourced information. "
         f"Focus on financial/investment-relevant discussions. "
-        f"If you can't find specific X posts, use other financial news sources and note that."
+        f"If you can't find specific X posts, use other financial news sources and note that. "
+        f"If any of the user's prior notes or themes are relevant, reference how sentiment "
+        f"compares to their existing thesis."
     )
 
     await _send_ai_response(
@@ -382,10 +397,15 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Use the hard data provided below, supplemented by real-time web search. Keep under 400 words."
     )
 
+    memory_ctx = get_full_context(ticker=ticker)
+    mem_block = f"\n\n{memory_ctx}" if memory_ctx else ""
+
     prompt = (
-        f"Provide an executive financial summary for {ticker} based on this data:\n\n{data_block}\n\n"
+        f"Provide an executive financial summary for {ticker} based on this data:\n\n{data_block}"
+        f"{mem_block}\n\n"
         f"Also search the web for any recent news, analyst actions, or developments for {ticker} "
-        f"as of {today} that could affect the outlook."
+        f"as of {today} that could affect the outlook.\n"
+        f"If the user has prior notes on this ticker, note what has CHANGED since their last observation."
     )
 
     await _send_ai_response(update, f"{ticker} — Financial Summary", prompt, system, use_search=True)
@@ -456,11 +476,16 @@ async def thesis(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Format: ## Bull Case, ## Bear Case, ## Key Risk, ## Key Catalyst"
     )
 
+    memory_ctx = get_full_context(ticker=ticker)
+    mem_block = f"\n\n{memory_ctx}" if memory_ctx else ""
+
     prompt = (
         f"Write a bull/bear investment thesis for {ticker}.\n\n"
-        f"Financial context:\n{context_str}\n\n"
+        f"Financial context:\n{context_str}"
+        f"{mem_block}\n\n"
         f"Search the web for recent analyst reports, news, and competitive developments "
-        f"for {ticker} as of {today}. Incorporate real findings into both bull and bear cases."
+        f"for {ticker} as of {today}. Incorporate real findings into both bull and bear cases.\n"
+        f"If the user has prior notes or tracked themes, weave those into the thesis."
     )
 
     await _send_ai_response(update, f"{ticker} — Investment Thesis", prompt, system, use_search=True)
@@ -515,12 +540,17 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Prioritize news from TODAY ({today}). Be concise."
     )
 
+    memory_ctx = get_full_context(ticker=ticker)
+    mem_block = f"\n\n{memory_ctx}" if memory_ctx else ""
+
     prompt = (
         f"Here are news headlines for {company_name} ({ticker}) from yfinance:\n\n"
-        f"{headlines_text or '(no headlines from yfinance)'}\n\n"
+        f"{headlines_text or '(no headlines from yfinance)'}"
+        f"{mem_block}\n\n"
         f"Now search the web for the latest news about {company_name} ({ticker}) "
         f"as of {today}. Combine all sources into a concise news digest. "
-        f"Focus on what matters most for the stock."
+        f"Focus on what matters most for the stock.\n"
+        f"If the user has prior notes, flag anything that CONTRADICTS or CONFIRMS their thesis."
     )
 
     await _send_ai_response(update, f"{ticker} — News Digest", prompt, system, use_search=True)

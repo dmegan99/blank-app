@@ -1,18 +1,11 @@
 """Watchlist and portfolio command handlers: /watchlist, /portfolio."""
 
-import json
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from services.yfinance_client import get_stock_info, get_price_history
 from utils.formatters import build_table, telegram_msg
-from config import WATCHLIST_FILE, load_watchlist
-
-
-def _save_watchlist(tickers: list):
-    """Save the watchlist to file."""
-    with open(WATCHLIST_FILE, "w") as f:
-        json.dump(tickers, f, indent=2)
+from config import load_watchlist, save_watchlist
 
 
 async def watchlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -45,7 +38,7 @@ async def watchlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if t not in current:
                 current.append(t)
                 added.append(t)
-        _save_watchlist(current)
+        save_watchlist(current)
         if added:
             await update.message.reply_text(f"✅ Added: {', '.join(added)}\nWatchlist: {len(current)} tickers")
         else:
@@ -60,7 +53,7 @@ async def watchlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if t in current:
                 current.remove(t)
                 removed.append(t)
-        _save_watchlist(current)
+        save_watchlist(current)
         if removed:
             await update.message.reply_text(f"🗑 Removed: {', '.join(removed)}\nWatchlist: {len(current)} tickers")
         else:
@@ -71,7 +64,7 @@ async def watchlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ticker = action.upper()
         if ticker not in current:
             current.append(ticker)
-            _save_watchlist(current)
+            save_watchlist(current)
             await update.message.reply_text(f"✅ Added {ticker}\nWatchlist: {len(current)} tickers")
         else:
             await update.message.reply_text(f"{ticker} already in watchlist")
