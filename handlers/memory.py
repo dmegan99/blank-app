@@ -519,3 +519,19 @@ async def feedback_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if entry.get("pattern"):
         response += f"\nLearned: {entry['pattern']}"
     await update.message.reply_text(response)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  /scan — trigger manual scan
+# ═══════════════════════════════════════════════════════════════════
+
+async def scan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually trigger the daily auto-scan."""
+    await update.message.reply_text("Running manual scan... (30-60s)")
+
+    from services.daily_scan import _daily_scan
+    try:
+        await _daily_scan(context.application)
+        await update.message.reply_text("✅ Scan complete — check above for results.")
+    except Exception as e:
+        await update.message.reply_text(f"Scan error: {e}")

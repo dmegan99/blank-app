@@ -23,6 +23,7 @@ WATCHLIST_FILE = os.path.join(_BASE_DIR, "watchlist.json")
 THEMES_FILE = os.path.join(_BASE_DIR, "themes.json")
 NOTES_FILE = os.path.join(_BASE_DIR, "notes.json")
 FEEDBACK_FILE = os.path.join(_BASE_DIR, "feedback.json")
+CHAT_IDS_FILE = os.path.join(_BASE_DIR, "chat_ids.json")
 
 
 def _load_json(path, default=None):
@@ -71,3 +72,20 @@ def load_feedback():
 
 def save_feedback(entries):
     _save_json(FEEDBACK_FILE, entries)
+
+
+def load_chat_ids():
+    """Load registered chat IDs for proactive messaging."""
+    return _load_json(CHAT_IDS_FILE, [])
+
+
+def save_chat_ids(ids):
+    _save_json(CHAT_IDS_FILE, ids)
+
+
+def register_chat_id(chat_id: int):
+    """Register a chat ID for proactive alerts (idempotent)."""
+    ids = load_chat_ids()
+    if chat_id not in ids:
+        ids.append(chat_id)
+        save_chat_ids(ids)

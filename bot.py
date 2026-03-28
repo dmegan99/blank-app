@@ -21,7 +21,8 @@ from handlers.screen import screen
 from handlers.ai import brief, nongaap, x_search, summarize, thesis, news
 from handlers.portfolio import watchlist, portfolio
 from handlers.analysis import compare, dcf, peers, earnings, dividend, alert
-from handlers.memory import themes_cmd, note_cmd, feedback_cmd
+from handlers.memory import themes_cmd, note_cmd, feedback_cmd, scan_cmd
+from services.daily_scan import start_background_jobs
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -85,6 +86,9 @@ def main():
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
+    # Start daily auto-scan and smart alert background jobs
+    start_background_jobs(app)
+
     # Basic commands
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("start", help_cmd))
@@ -128,6 +132,7 @@ def main():
     app.add_handler(CommandHandler("themes", themes_cmd))
     app.add_handler(CommandHandler("note", note_cmd))
     app.add_handler(CommandHandler("feedback", feedback_cmd))
+    app.add_handler(CommandHandler("scan", scan_cmd))
 
     # Watchlist & portfolio
     app.add_handler(CommandHandler("watchlist", watchlist))

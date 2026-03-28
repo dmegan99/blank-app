@@ -4,13 +4,19 @@ import time
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import BOT_VERSION, BOT_BUILD_TIME, FINNHUB_API_KEY, GEMINI_API_KEY, load_watchlist, load_themes, load_notes
+from config import (
+    BOT_VERSION, BOT_BUILD_TIME, FINNHUB_API_KEY, GEMINI_API_KEY,
+    load_watchlist, load_themes, load_notes, register_chat_id,
+)
 
 _START_TIME = time.time()
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show available commands."""
+    # Register chat for proactive alerts
+    register_chat_id(update.effective_chat.id)
+
     msg = (
         "<b>Available Commands</b>\n\n"
         "<b>Basics</b>\n"
@@ -50,7 +56,11 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/note TICKER text — Save a note/observation\n"
         "/note TICKER    — View notes\n"
         "/note list      — All subjects with notes\n"
-        "/feedback good/bad — Help bot learn\n\n"
+        "/feedback good/bad — Help bot learn\n"
+        "/scan           — Trigger manual daily scan\n\n"
+        "🤖 <b>Auto runs daily at 6:30 AM ET</b>\n"
+        "   Scans watchlist, compares vs notes,\n"
+        "   alerts on big moves &amp; breaking news\n\n"
         "<b>Portfolio &amp; Alerts</b>\n"
         "/watchlist      — View watchlist\n"
         "/watchlist add TICKER — Add to watchlist\n"
