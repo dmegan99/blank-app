@@ -142,6 +142,69 @@ async def themes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _themes_scan(update)
         return
 
+    # /themes info NAME — show theme details + related notes
+    if action == "info":
+        theme_name = " ".join(args[1:]).lower()
+        if not theme_name:
+            await update.message.reply_text("Usage: /themes info Theme Name")
+            return
+
+        theme = None
+        for t in current:
+            if t["name"].lower() == theme_name:
+                theme = t
+                break
+
+        if not theme:
+            await update.message.reply_text(f"Theme '{theme_name}' not found. Use /themes to list.")
+            return
+
+        lines = [
+            f"Name: {theme['name']}",
+            f"Description: {theme.get('description', 'none')}",
+            f"Tickers: {', '.join(theme.get('tickers', [])) or 'none'}",
+            f"Added: {theme.get('added', '?')[:10]}",
+        ]
+
+        # Pull notes for all tickers in this theme
+        notes = load_notes()
+        tickers = theme.get("tickers", [])
+        note_lines = []
+        for ticker in tickers:
+            entries = notes.get(ticker, [])
+            if entries:
+                note_lines.append(f"\n{ticker} ({len(entries)} notes):")
+                for n in entries[-5:]:  # last 5 per ticker
+                    ts = n["timestamp"][:10]
+                    src = n.get("source", "manual")
+                    note_lines.append(f"  [{ts}|{src}] {n['text'][:80]}")
+
+        # Also check for notes keyed by theme name itself
+        theme_key = theme["name"].upper()
+        theme_notes = notes.get(theme_key, [])
+        if theme_notes:
+            note_lines.append(f"\n{theme_key} ({len(theme_notes)} notes):")
+            for n in theme_notes[-5:]:
+                ts = n["timestamp"][:10]
+                src = n.get("source", "manual")
+                note_lines.append(f"  [{ts}|{src}] {n['text'][:80]}")
+
+        if note_lines:
+            lines.append("\n📝 Related Notes:")
+            lines.extend(note_lines)
+        else:
+            lines.append("\nNo notes yet for this theme's tickers.")
+
+        body = "\n".join(lines)
+        msg = telegram_msg(f"Theme: {theme['name']}", body)
+
+        # Split if too long
+        if len(msg) > 4000:
+            msg = msg[:3950] + "\n[truncated]</pre>"
+
+        await update.message.reply_text(msg, parse_mode="HTML")
+        return
+
     # /themes add
     if action == "add":
         raw = " ".join(args[1:])
