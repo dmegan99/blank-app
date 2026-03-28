@@ -156,6 +156,39 @@ def screen_ticker(ticker: str) -> dict | None:
             if pct_diff < 2:
                 signals.append(f"Near Fib {level_name}")
 
+        # SMA 50 & 200
+        sma50 = float(close.rolling(50).mean().iloc[-1]) if len(close) >= 50 else None
+        sma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
+
+        # Average volume comparison (recent 5d vs 20d)
+        vol = hist["Volume"] if "Volume" in hist.columns else None
+        vol_ratio = None
+        if vol is not None and len(vol) >= 20:
+            avg5 = float(vol.iloc[-5:].mean())
+            avg20 = float(vol.iloc[-20:].mean())
+            if avg20 > 0:
+                vol_ratio = avg5 / avg20
+
+        if sma50 and sma200:
+            if sma50 > sma200 and close.iloc[-2] <= sma200:
+                signals.append("Golden cross area")
+            elif sma50 < sma200 and close.iloc[-2] >= sma200:
+                signals.append("Death cross area")
+
+        if vol_ratio and vol_ratio > 2.0:
+            signals.append("Volume spike")
+
+        # Nearest Fibonacci level
+        nearest_fib = None
+        nearest_fib_dist = 999
+        for level_name, level_price in fib.items():
+            if level_name in ("0.0%", "100.0%"):
+                continue
+            pct_diff = (current_price - level_price) / level_price * 100
+            if abs(pct_diff) < abs(nearest_fib_dist):
+                nearest_fib_dist = pct_diff
+                nearest_fib = level_name
+
         return {
             "ticker": ticker,
             "price": current_price,
@@ -165,6 +198,11 @@ def screen_ticker(ticker: str) -> dict | None:
             "high_52w": high_52w,
             "low_52w": low_52w,
             "pct_from_high": ((current_price - high_52w) / high_52w) * 100,
+            "sma50": sma50,
+            "sma200": sma200,
+            "vol_ratio": vol_ratio,
+            "nearest_fib": nearest_fib,
+            "nearest_fib_dist": nearest_fib_dist,
             "signals": signals,
         }
     except Exception:

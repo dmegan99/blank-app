@@ -5,7 +5,10 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from services.yfinance_client import get_stock_info, calculate_rsi, get_price_history
-from services.finnhub_client import get_recommendation_trends, get_price_target
+from services.finnhub_client import (
+    get_recommendation_trends, get_price_target,
+    get_eps_estimates, get_revenue_estimates,
+)
 from utils.formatters import fmt_number, fmt_pct, fmt_multiplier, build_table, telegram_msg
 from config import FINNHUB_API_KEY
 
@@ -146,8 +149,10 @@ async def val(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if float_shares:
         short_lines.append(f"  Float: {float_shares / 1e6:.1f}M")
 
-    # Analyst consensus from Finnhub
+    # Analyst consensus + price target + EPS estimates from Finnhub
     consensus_line = ""
+    target_line = ""
+    eps_lines = []
     if FINNHUB_API_KEY:
         try:
             recs = get_recommendation_trends(ticker)
@@ -160,6 +165,46 @@ async def val(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+        try:
+            pt = get_price_target(ticker)
+            if pt and pt.get("targetMean"):
+                low = pt.get("targetLow", 0)
+                mean = pt.get("targetMean", 0)
+                high = pt.get("targetHigh", 0)
+                upside = ((mean - price) / price * 100) if price else 0
+                target_line = (
+                    f"Price Target: ${low:.0f} / ${mean:.0f} / ${high:.0f} "
+                    f"(Low/Mean/High) → {upside:+.1f}%"
+                )
+        except Exception:
+            pass
+
+        try:
+            eps_est = get_eps_estimates(ticker)
+            if eps_est:
+                eps_lines.append("\nEPS Estimates:")
+                for e in eps_est[:4]:
+                    period = e.get("period", "?")
+                    est = e.get("epsAvg")
+                    high_e = e.get("epsHigh")
+                    low_e = e.get("epsLow")
+                    num = e.get("numberAnalysts", 0)
+                    if est is not None:
+                        eps_lines.append(
+                            f"  {period}: ${est:.2f} "
+                            f"(${low_e:.2f}-${high_e:.2f}, {num} analysts)"
+                            if low_e is not None and high_e is not None
+                            else f"  {period}: ${est:.2f} ({num} analysts)"
+                        )
+        except Exception:
+            pass
+
+    # PEG ratio
+    peg_line = ""
+    if pe_forward and eps_growth and eps_growth > 0:
+        peg = pe_forward / eps_growth
+        peg_line = f"PEG Ratio: {peg:.2f}"
+
     # Assemble
     body_parts = [
         "\n".join(header_lines),
@@ -168,10 +213,16 @@ async def val(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     if growth_lines:
         body_parts.append("\n" + "\n".join(growth_lines))
+    if peg_line:
+        body_parts.append(peg_line)
     if len(short_lines) > 1:
         body_parts.append("\n".join(short_lines))
     if consensus_line:
         body_parts.append("\n" + consensus_line)
+    if target_line:
+        body_parts.append(target_line)
+    if eps_lines:
+        body_parts.append("\n".join(eps_lines))
 
     body = "\n".join(body_parts)
     msg = telegram_msg(f"{ticker} — Valuation Snapshot", body)

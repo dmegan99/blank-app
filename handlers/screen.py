@@ -43,14 +43,33 @@ async def screen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts.append("")
 
     # Summary table for all
-    headers = ["Ticker", "Price", "RSI", "MACD", "vs 52H"]
+    headers = ["Ticker", "Price", "RSI", "MACD", "vs52H", "SMA", "Vol"]
     rows = []
     all_results = with_signals + without_signals
     for r in all_results:
         rsi_str = f"{r['rsi']:.1f}" if r["rsi"] is not None else "N/A"
         macd_str = r.get("macd_cross", "N/A") if r.get("macd_cross") != "none" else "-"
         pct_high = f"{r['pct_from_high']:.1f}%"
-        rows.append([r["ticker"], f"${r['price']:.2f}", rsi_str, macd_str, pct_high])
+
+        # SMA position: above/below 50 & 200
+        sma_str = ""
+        if r.get("sma50") and r.get("sma200"):
+            above50 = r["price"] > r["sma50"]
+            above200 = r["price"] > r["sma200"]
+            if above50 and above200:
+                sma_str = "▲▲"
+            elif above200:
+                sma_str = "—▲"
+            elif above50:
+                sma_str = "▲—"
+            else:
+                sma_str = "▼▼"
+        elif r.get("sma50"):
+            sma_str = "▲" if r["price"] > r["sma50"] else "▼"
+
+        vol_str = f"{r['vol_ratio']:.1f}x" if r.get("vol_ratio") else "-"
+
+        rows.append([r["ticker"], f"${r['price']:.2f}", rsi_str, macd_str, pct_high, sma_str, vol_str])
 
     table = build_table(headers, rows)
 

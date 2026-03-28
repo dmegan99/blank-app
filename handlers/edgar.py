@@ -112,6 +112,8 @@ async def profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     headers = ["Quarter", "Net Inc ($M)", "QoQ%", "YoY%", "Accel"]
     rows = []
+    accel_up = 0
+    accel_total = 0
 
     for q in quarters:
         quarter_label = _format_fiscal_quarter(q)
@@ -119,10 +121,23 @@ async def profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         qoq = fmt_pct(q["qoq"]) if q["qoq"] is not None else "N/A"
         yoy = fmt_pct(q["yoy"]) if q["yoy"] is not None else "N/A"
         accel = q.get("accel", "")
+        if accel == "↑":
+            accel_up += 1
+        if accel:
+            accel_total += 1
         rows.append([quarter_label, ni_val, qoq, yoy, accel or ""])
 
     table = build_table(headers, rows)
-    msg = telegram_msg(f"{ticker} — Quarterly Net Income (12Q)", table)
+
+    footer = ""
+    if accel_total > 0:
+        footer = f"\nTrend: YoY accelerating {accel_up} of last {accel_total} quarters"
+        if accel_up > accel_total / 2:
+            footer += "\n⚡ 2nd Derivative: Profit growth ACCELERATING — recent YoY pace exceeding prior quarters"
+        elif accel_up < accel_total / 2:
+            footer += "\n📉 2nd Derivative: Profit growth DECELERATING — YoY pace slowing"
+
+    msg = telegram_msg(f"{ticker} — Quarterly Net Income (12Q)", table, footer)
     await update.message.reply_text(msg, parse_mode="HTML")
 
 

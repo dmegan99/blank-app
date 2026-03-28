@@ -20,6 +20,7 @@ from handlers.valuation import val
 from handlers.screen import screen
 from handlers.ai import brief, nongaap, x_search, summarize, thesis, news
 from handlers.portfolio import watchlist, portfolio
+from handlers.analysis import compare, dcf, peers, earnings, dividend, alert
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -113,6 +114,14 @@ def main():
     app.add_handler(CommandHandler("summarize", summarize))
     app.add_handler(CommandHandler("thesis", thesis))
     app.add_handler(CommandHandler("news", news))
+
+    # Analysis commands
+    app.add_handler(CommandHandler("compare", compare))
+    app.add_handler(CommandHandler("dcf", dcf))
+    app.add_handler(CommandHandler("peers", peers))
+    app.add_handler(CommandHandler("earnings", earnings))
+    app.add_handler(CommandHandler("dividend", dividend))
+    app.add_handler(CommandHandler("alert", alert))
 
     # Watchlist & portfolio
     app.add_handler(CommandHandler("watchlist", watchlist))
