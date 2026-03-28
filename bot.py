@@ -6,8 +6,10 @@ so it can be deployed as a free Render Web Service.
 
 import logging
 import threading
+import time
 import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import requests
 from telegram.ext import ApplicationBuilder, CommandHandler
 
 from config import TELEGRAM_BOT_TOKEN
@@ -47,6 +49,23 @@ def start_health_server():
     server.serve_forever()
 
 
+def start_keep_alive():
+    """Ping own Render URL every 14 minutes to prevent free-tier sleep."""
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not render_url:
+        logger.info("RENDER_EXTERNAL_URL not set — keep-alive disabled")
+        return
+    ping_url = render_url.rstrip("/") + "/"
+    logger.info(f"Keep-alive will ping {ping_url} every 14 minutes")
+    while True:
+        time.sleep(14 * 60)
+        try:
+            resp = requests.get(ping_url, timeout=10)
+            logger.info(f"Keep-alive ping: {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"Keep-alive ping failed: {e}")
+
+
 def main():
     if not TELEGRAM_BOT_TOKEN:
         print("ERROR: TELEGRAM_BOT_TOKEN not set.")
@@ -57,6 +76,10 @@ def main():
     # Start health check server in background thread
     health_thread = threading.Thread(target=start_health_server, daemon=True)
     health_thread.start()
+
+    # Start self-ping to keep Render free tier awake
+    keep_alive_thread = threading.Thread(target=start_keep_alive, daemon=True)
+    keep_alive_thread.start()
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
