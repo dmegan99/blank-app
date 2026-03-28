@@ -110,6 +110,15 @@ async def _daily_scan(app):
 
     logger.info(f"Daily scan: {len(watchlist)} tickers")
 
+    # ── 0. Re-link themes to watchlist tickers (1 Gemini call) ──
+    try:
+        from handlers.memory import auto_link_all_themes
+        updated = auto_link_all_themes()
+        if updated:
+            logger.info(f"Auto-linked {len(updated)} themes to tickers")
+    except Exception as e:
+        logger.warning(f"Theme auto-link error: {e}")
+
     # ── 1. Check overnight price moves ──
     movers = []
     for ticker in watchlist:

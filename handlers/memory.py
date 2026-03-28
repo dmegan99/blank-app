@@ -22,6 +22,110 @@ ET = ZoneInfo("America/New_York")
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  AUTO-LINK — AI matches watchlist tickers to themes
+# ═══════════════════════════════════════════════════════════════════
+
+def auto_link_tickers_to_theme(theme: dict) -> list[str]:
+    """Use AI to figure out which watchlist tickers relate to a theme.
+
+    Returns list of tickers. Does NOT overwrite manual edits — merges.
+    """
+    watchlist = load_watchlist()
+    if not watchlist or not GEMINI_API_KEY:
+        return theme.get("tickers", [])
+
+    ticker_list = ", ".join(watchlist)
+    prompt = (
+        f"Theme: {theme['name']}\n"
+        f"Description: {theme.get('description', '')}\n\n"
+        f"Watchlist tickers: {ticker_list}\n\n"
+        f"Which of these tickers are directly relevant to this investment theme? "
+        f"Reply with ONLY a comma-separated list of tickers, nothing else. "
+        f"If none are relevant, reply NONE."
+    )
+
+    result = ask_ai(prompt, system="Reply with only ticker symbols, comma-separated. No explanation.")
+    if not result or result.startswith("[") or "NONE" in result.upper():
+        return theme.get("tickers", [])
+
+    # Parse AI response — extract valid tickers
+    ai_tickers = [t.strip().upper() for t in result.replace("\n", ",").split(",") if t.strip()]
+    # Only keep tickers that are actually in the watchlist
+    valid = [t for t in ai_tickers if t in watchlist]
+
+    # Merge with any manually-set tickers (preserve manual overrides)
+    manual = theme.get("tickers", [])
+    merged = list(dict.fromkeys(valid + manual))  # dedupe, AI first then manual
+    return merged
+
+
+def auto_link_all_themes() -> dict[str, list[str]]:
+    """Re-link all themes to watchlist tickers. Returns {theme_name: [tickers]}."""
+    themes = load_themes()
+    watchlist = load_watchlist()
+    if not themes or not watchlist or not GEMINI_API_KEY:
+        return {}
+
+    # Single AI call for efficiency — ask for all themes at once
+    theme_lines = []
+    for t in themes:
+        theme_lines.append(f"  {t['name']}: {t.get('description', '')}")
+    themes_block = "\n".join(theme_lines)
+    ticker_list = ", ".join(watchlist)
+
+    prompt = (
+        f"Here are investment themes and a watchlist of tickers.\n\n"
+        f"THEMES:\n{themes_block}\n\n"
+        f"TICKERS: {ticker_list}\n\n"
+        f"For each theme, list the relevant tickers from the watchlist.\n"
+        f"Format: THEME NAME: TICK1, TICK2, TICK3\n"
+        f"One line per theme. Only use tickers from the watchlist. "
+        f"If no tickers match, write: THEME NAME: NONE"
+    )
+
+    result = ask_ai(prompt, system="Reply with only the formatted list. No explanation or preamble.")
+    if not result or result.startswith("["):
+        return {}
+
+    # Parse result
+    mapping = {}
+    for line in result.strip().split("\n"):
+        line = line.strip()
+        if ":" not in line:
+            continue
+        name_part, tickers_part = line.split(":", 1)
+        name_part = name_part.strip()
+
+        if "NONE" in tickers_part.upper():
+            continue
+
+        parsed = [t.strip().upper() for t in tickers_part.split(",") if t.strip()]
+        valid = [t for t in parsed if t in watchlist]
+        if valid:
+            mapping[name_part] = valid
+
+    # Apply mapping — match by partial name
+    updated = {}
+    for theme in themes:
+        best_match = None
+        for mapped_name, tickers in mapping.items():
+            if (mapped_name.lower() == theme["name"].lower() or
+                    mapped_name.lower() in theme["name"].lower() or
+                    theme["name"].lower() in mapped_name.lower()):
+                best_match = tickers
+                break
+
+        if best_match:
+            # Merge: AI suggestions + any existing manual tickers not in watchlist
+            manual_extras = [t for t in theme.get("tickers", []) if t not in watchlist]
+            theme["tickers"] = list(dict.fromkeys(best_match + manual_extras))
+            updated[theme["name"]] = theme["tickers"]
+
+    save_themes(themes)
+    return updated
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  CONTEXT BUILDER — feeds notes + themes into AI prompts
 # ═══════════════════════════════════════════════════════════════════
 
@@ -140,6 +244,24 @@ async def themes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # /themes scan — AI emerging themes
     if action == "scan":
         await _themes_scan(update)
+        return
+
+    # /themes link — re-run AI auto-linking on all themes
+    if action == "link":
+        if not GEMINI_API_KEY:
+            await update.message.reply_text("❌ GEMINI_API_KEY not configured")
+            return
+        await update.message.reply_text(f"Auto-linking {len(current)} themes to watchlist tickers...")
+        updated = auto_link_all_themes()
+        if updated:
+            lines = []
+            for name, tickers in updated.items():
+                lines.append(f"  {name}: {', '.join(tickers)}")
+            await update.message.reply_text(
+                "✅ Updated ticker links:\n" + "\n".join(lines)
+            )
+        else:
+            await update.message.reply_text("No changes — could not match tickers.")
         return
 
     # /themes info NAME — show theme details + related notes
@@ -266,17 +388,26 @@ async def themes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"Theme '{name}' already exists.")
                 return
 
-        current.append({
+        new_theme = {
             "name": name,
             "description": description,
             "tickers": tickers,
             "added": datetime.now(ET).isoformat(),
-        })
+        }
+
+        # Auto-link watchlist tickers if none provided
+        if not tickers and GEMINI_API_KEY:
+            await update.message.reply_text(f"Auto-linking watchlist tickers to '{name}'...")
+            new_theme["tickers"] = auto_link_tickers_to_theme(new_theme)
+
+        current.append(new_theme)
         save_themes(current)
+        linked = new_theme["tickers"]
         await update.message.reply_text(
             f"✅ Added theme: {name}\n"
             + (f"Description: {description}\n" if description else "")
-            + (f"Tickers: {', '.join(tickers)}" if tickers else "No specific tickers (broad theme)")
+            + (f"Tickers: {', '.join(linked)}" if linked else "No tickers matched")
+            + "\n\nEdit with /themes edit NAME | desc | TICKERS"
         )
         return
 
@@ -351,16 +482,24 @@ async def themes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Theme '{name}' not found.")
         return
 
-    # Shorthand: /themes Some Theme Name → add it
+    # Shorthand: /themes Some Theme Name → add it with auto-linking
     name = " ".join(args)
-    current.append({
+    new_theme = {
         "name": name,
         "description": "",
         "tickers": [],
         "added": datetime.now(ET).isoformat(),
-    })
+    }
+    if GEMINI_API_KEY:
+        await update.message.reply_text(f"Adding '{name}' and auto-linking tickers...")
+        new_theme["tickers"] = auto_link_tickers_to_theme(new_theme)
+    current.append(new_theme)
     save_themes(current)
-    await update.message.reply_text(f"✅ Added theme: {name}")
+    linked = new_theme["tickers"]
+    await update.message.reply_text(
+        f"✅ Added theme: {name}\n"
+        + (f"Tickers: {', '.join(linked)}" if linked else "No tickers matched")
+    )
 
 
 async def _themes_scan(update: Update):
