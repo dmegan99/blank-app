@@ -155,35 +155,73 @@ async def themes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 theme = t
                 break
 
+        # Partial match fallback
+        if not theme:
+            for t in current:
+                if theme_name in t["name"].lower():
+                    theme = t
+                    break
+
         if not theme:
             await update.message.reply_text(f"Theme '{theme_name}' not found. Use /themes to list.")
             return
 
+        # Combine explicit theme tickers + watchlist tickers
+        explicit_tickers = theme.get("tickers", [])
+        watchlist_tickers = load_watchlist()
+        all_related = list(dict.fromkeys(explicit_tickers + watchlist_tickers))
+
         lines = [
             f"Name: {theme['name']}",
             f"Description: {theme.get('description', 'none')}",
-            f"Tickers: {', '.join(theme.get('tickers', [])) or 'none'}",
+            f"Tickers: {', '.join(explicit_tickers) or 'auto from watchlist'}",
             f"Added: {theme.get('added', '?')[:10]}",
         ]
 
-        # Pull notes for all tickers in this theme
+        # Pull notes for theme tickers, then scan all watchlist notes for keyword matches
         notes = load_notes()
-        tickers = theme.get("tickers", [])
+        theme_keywords = theme["name"].lower().split() + theme.get("description", "").lower().split()
+        # Filter out short/common words
+        theme_keywords = [w for w in theme_keywords if len(w) > 3 and w not in
+                          {"with", "from", "that", "this", "they", "their", "about", "across"}]
+
         note_lines = []
-        for ticker in tickers:
+        shown_tickers = set()
+
+        # First: notes for explicit tickers
+        for ticker in explicit_tickers:
             entries = notes.get(ticker, [])
             if entries:
+                shown_tickers.add(ticker)
                 note_lines.append(f"\n{ticker} ({len(entries)} notes):")
-                for n in entries[-5:]:  # last 5 per ticker
+                for n in entries[-5:]:
                     ts = n["timestamp"][:10]
                     src = n.get("source", "manual")
                     note_lines.append(f"  [{ts}|{src}] {n['text'][:80]}")
 
-        # Also check for notes keyed by theme name itself
+        # Second: scan all notes for keyword matches (auto-linking)
+        for subject, entries in notes.items():
+            if subject in shown_tickers:
+                continue
+            # Check if any notes mention theme keywords
+            relevant = []
+            for n in entries[-10:]:
+                text_lower = n["text"].lower()
+                if any(kw in text_lower for kw in theme_keywords):
+                    relevant.append(n)
+            if relevant:
+                shown_tickers.add(subject)
+                note_lines.append(f"\n{subject} ({len(relevant)} related):")
+                for n in relevant[-3:]:
+                    ts = n["timestamp"][:10]
+                    src = n.get("source", "manual")
+                    note_lines.append(f"  [{ts}|{src}] {n['text'][:80]}")
+
+        # Third: notes keyed by theme name itself
         theme_key = theme["name"].upper()
         theme_notes = notes.get(theme_key, [])
         if theme_notes:
-            note_lines.append(f"\n{theme_key} ({len(theme_notes)} notes):")
+            note_lines.append(f"\n📋 Theme-level notes ({len(theme_notes)}):")
             for n in theme_notes[-5:]:
                 ts = n["timestamp"][:10]
                 src = n.get("source", "manual")
@@ -193,7 +231,9 @@ async def themes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append("\n📝 Related Notes:")
             lines.extend(note_lines)
         else:
-            lines.append("\nNo notes yet for this theme's tickers.")
+            lines.append("\nNo notes yet. Save with:")
+            lines.append(f"  /note {explicit_tickers[0] if explicit_tickers else 'TICKER'} your observation")
+            lines.append(f"  /note {theme_key} theme-level note")
 
         body = "\n".join(lines)
         msg = telegram_msg(f"Theme: {theme['name']}", body)
@@ -238,6 +278,62 @@ async def themes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             + (f"Description: {description}\n" if description else "")
             + (f"Tickers: {', '.join(tickers)}" if tickers else "No specific tickers (broad theme)")
         )
+        return
+
+    # /themes edit NAME | new description | NEW,TICKERS
+    if action == "edit":
+        raw = " ".join(args[1:])
+        if not raw:
+            await update.message.reply_text(
+                "Usage: /themes edit Theme Name | new description | TICK1,TICK2\n"
+                "Use - to keep existing value:\n"
+                "/themes edit AI Infra | - | NVDA,AMD,TSM  (keep desc, change tickers)\n"
+                "/themes edit AI Infra | new desc | -  (change desc, keep tickers)\n"
+                "/themes edit AI Infra | new desc | NVDA,AMD  (change both)"
+            )
+            return
+
+        parts = [p.strip() for p in raw.split("|")]
+        search_name = parts[0].strip().lower()
+
+        theme = None
+        for t in current:
+            if t["name"].lower() == search_name:
+                theme = t
+                break
+
+        if not theme:
+            # Try partial match
+            for t in current:
+                if search_name in t["name"].lower():
+                    theme = t
+                    break
+
+        if not theme:
+            await update.message.reply_text(f"Theme '{parts[0]}' not found. Use /themes to list.")
+            return
+
+        changes = []
+        if len(parts) > 1 and parts[1].strip() != "-" and parts[1].strip():
+            theme["description"] = parts[1].strip()
+            changes.append(f"Description: {theme['description']}")
+
+        if len(parts) > 2 and parts[2].strip() != "-" and parts[2].strip():
+            theme["tickers"] = [t.strip().upper() for t in parts[2].split(",") if t.strip()]
+            changes.append(f"Tickers: {', '.join(theme['tickers'])}")
+
+        # Allow renaming: /themes edit OLD NAME | new desc | tickers | NEW NAME
+        if len(parts) > 3 and parts[3].strip():
+            old_name = theme["name"]
+            theme["name"] = parts[3].strip()
+            changes.append(f"Renamed: {old_name} → {theme['name']}")
+
+        if not changes:
+            await update.message.reply_text("Nothing changed. Use | to separate fields:\n/themes edit Name | description | TICKERS")
+            return
+
+        save_themes(current)
+        await update.message.reply_text(f"✅ Updated theme:\n" + "\n".join(changes))
         return
 
     # /themes remove
