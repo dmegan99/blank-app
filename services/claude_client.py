@@ -2,6 +2,9 @@
 
 Requires GEMINI_API_KEY environment variable.
 Free tier: 15 requests/minute, 1M tokens/day.
+
+Supports Google Search grounding — Gemini will search the web for
+real-time data before generating a response when use_search=True.
 """
 
 import logging
@@ -14,8 +17,17 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_MODEL = "gemini-2.5-flash"
 
 
-def ask_ai(prompt: str, system: str = "", model: str = None) -> str | None:
-    """Send a prompt to Gemini and return the text response."""
+def ask_ai(prompt: str, system: str = "", model: str = None,
+           use_search: bool = False) -> str | None:
+    """Send a prompt to Gemini and return the text response.
+
+    Args:
+        prompt: The user prompt to send.
+        system: Optional system instruction.
+        model: Model override (defaults to gemini-2.5-flash).
+        use_search: If True, enable Google Search grounding so Gemini
+                    fetches real-time info from the web before answering.
+    """
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not set")
         return None
@@ -35,8 +47,12 @@ def ask_ai(prompt: str, system: str = "", model: str = None) -> str | None:
         "parts": [{"text": prompt}]
     })
 
+    # Enable Google Search grounding for real-time data
+    if use_search:
+        payload["tools"] = [{"google_search": {}}]
+
     try:
-        resp = requests.post(url, json=payload, timeout=60)
+        resp = requests.post(url, json=payload, timeout=90)
         if resp.status_code != 200:
             logger.error(f"Gemini API error {resp.status_code}: {resp.text[:500]}")
             return f"[API Error {resp.status_code}]: {resp.text[:200]}"
@@ -45,8 +61,10 @@ def ask_ai(prompt: str, system: str = "", model: str = None) -> str | None:
         candidates = data.get("candidates", [])
         if candidates:
             parts = candidates[0].get("content", {}).get("parts", [])
-            if parts:
-                return parts[0].get("text")
+            # Collect all text parts (grounding may return multiple)
+            text_parts = [p.get("text", "") for p in parts if p.get("text")]
+            if text_parts:
+                return "\n".join(text_parts)
 
         logger.error(f"Gemini returned no candidates: {data}")
         return None

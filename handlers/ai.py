@@ -3,6 +3,7 @@
 import re
 import requests
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -14,6 +15,8 @@ from services.edgar import (
 from services.yfinance_client import get_stock_info, get_news
 from utils.formatters import escape_html, fmt_millions, fmt_pct
 from config import EDGAR_USER_AGENT, GEMINI_API_KEY, load_watchlist
+
+ET = ZoneInfo("America/New_York")
 
 
 def _get_ticker(context: ContextTypes.DEFAULT_TYPE) -> str | None:
@@ -29,9 +32,9 @@ def _check_ai(update):
     return None
 
 
-async def _send_ai_response(update, title, prompt, system=""):
+async def _send_ai_response(update, title, prompt, system="", use_search=False):
     """Common pattern: send prompt to AI, handle errors, send response."""
-    response = ask_ai(prompt, system=system)
+    response = ask_ai(prompt, system=system, use_search=use_search)
     if not response:
         await update.message.reply_text("AI returned no response.")
         return
@@ -50,31 +53,149 @@ async def _send_ai_response(update, title, prompt, system=""):
 
 # --- /brief ---
 
+_BRIEF_SLOTS = {
+    # Keyword → (label, hour, description)
+    "am":    ("Pre-Market", 7,  "pre-market"),
+    "7am":   ("Pre-Market", 7,  "pre-market"),
+    "7":     ("Pre-Market", 7,  "pre-market"),
+    "pre":   ("Pre-Market", 7,  "pre-market"),
+    "noon":  ("Midday", 12,     "midday"),
+    "12pm":  ("Midday", 12,     "midday"),
+    "12":    ("Midday", 12,     "midday"),
+    "mid":   ("Midday", 12,     "midday"),
+    "pm":    ("Closing", 17,    "end-of-day"),
+    "5pm":   ("Closing", 17,    "end-of-day"),
+    "5":     ("Closing", 17,    "end-of-day"),
+    "close": ("Closing", 17,    "end-of-day"),
+    "eod":   ("Closing", 17,    "end-of-day"),
+}
+
+
+def _parse_brief_slot(args):
+    """Parse time slot from args. Returns (label, slot_desc) or defaults based on current ET."""
+    if args:
+        key = args[0].lower().replace(":", "")
+        slot = _BRIEF_SLOTS.get(key)
+        if slot:
+            return slot[0], slot[2]
+
+    # Auto-detect based on current Eastern time
+    et_hour = datetime.now(ET).hour
+    if et_hour < 10:
+        return "Pre-Market", "pre-market"
+    elif et_hour < 14:
+        return "Midday", "midday"
+    else:
+        return "Closing", "end-of-day"
+
+
 async def brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate AI morning briefing."""
+    """Market briefing: /brief [am|noon|pm]. Uses real-time data via web search."""
     err = _check_ai(update)
     if err:
         await update.message.reply_text(err)
         return
-    await update.message.reply_text("Generating morning briefing... (15-30s)")
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    label, slot_desc = _parse_brief_slot(context.args)
+    now_et = datetime.now(ET)
+    today = now_et.strftime("%Y-%m-%d")
+    time_str = now_et.strftime("%I:%M %p ET")
+
+    await update.message.reply_text(f"Generating {label} briefing... (15-30s)")
+
+    # Fetch watchlist headlines to ground the briefing
+    watchlist = load_watchlist()
+    watchlist_context = ""
+    if watchlist:
+        top_tickers = watchlist[:10]
+        all_hl = []
+        for t in top_tickers:
+            hl = get_news(t, max_items=3)
+            if hl:
+                lines = [f"{t}:"]
+                for h in hl:
+                    pub = h.get("published", "")[:10] if h.get("published") else ""
+                    lines.append(f"  - [{pub}] {h['title']}")
+                all_hl.append("\n".join(lines))
+        if all_hl:
+            watchlist_context = "\n\nWATCHLIST HEADLINES:\n" + "\n".join(all_hl)
+
+    # Fetch broad market data
+    market_data = ""
+    try:
+        from services.yfinance_client import get_price_history
+        indices = {"SPY": "S&P 500", "QQQ": "Nasdaq", "DIA": "Dow", "IWM": "Russell 2K",
+                   "TLT": "20Y Bond", "GLD": "Gold", "USO": "Oil", "VIX": "VIX"}
+        mkt_lines = []
+        for sym, name in indices.items():
+            try:
+                hist = get_price_history(sym, period="5d")
+                if not hist.empty and len(hist) >= 2:
+                    last = float(hist["Close"].iloc[-1])
+                    prev = float(hist["Close"].iloc[-2])
+                    chg = ((last - prev) / prev) * 100
+                    mkt_lines.append(f"  {name} ({sym}): {last:.2f} ({chg:+.2f}%)")
+            except Exception:
+                pass
+        if mkt_lines:
+            market_data = "\n\nMARKET DATA:\n" + "\n".join(mkt_lines)
+    except Exception:
+        pass
+
+    slot_instructions = {
+        "pre-market": (
+            "This is a PRE-MARKET briefing (7 AM ET). Focus on:\n"
+            "- Overnight futures and global market moves (Asia, Europe)\n"
+            "- Pre-market movers and why they're moving\n"
+            "- Key economic data releases scheduled today\n"
+            "- Earnings reports before the open\n"
+            "- Geopolitical developments overnight affecting markets\n"
+            "- Setup: what to watch for at the open"
+        ),
+        "midday": (
+            "This is a MIDDAY briefing (12 PM ET). Focus on:\n"
+            "- Morning session recap: what moved and why\n"
+            "- Sector rotation and leadership/laggards\n"
+            "- Any breaking news or intraday developments\n"
+            "- Volume and breadth observations\n"
+            "- Key levels being tested (S&P, Nasdaq)\n"
+            "- What to watch into the close"
+        ),
+        "end-of-day": (
+            "This is an END-OF-DAY briefing (5 PM ET). Focus on:\n"
+            "- Full session recap: major indices performance\n"
+            "- Biggest winners and losers with reasons\n"
+            "- Earnings reports after the close\n"
+            "- Key macro takeaways from the day\n"
+            "- After-hours movers\n"
+            "- Setup: what to watch for tomorrow"
+        ),
+    }
 
     system = (
-        "You are a concise financial analyst. Generate a morning market briefing. "
-        "Cover: key overnight moves, macro events, notable earnings, sector rotations, "
-        "and any significant geopolitical developments affecting markets. "
-        "Use bullet points and keep it scannable. Include relevant tickers where applicable."
+        f"You are a concise, professional Wall Street market analyst. "
+        f"Today is {today}, current time is {time_str}. "
+        f"{slot_instructions.get(slot_desc, '')}\n\n"
+        f"IMPORTANT: Use the real-time market data, news headlines, and web search results "
+        f"provided to give accurate, current information. Do NOT rely on training data for "
+        f"recent events. If you're unsure about something, say so. "
+        f"Use bullet points. Include tickers. Keep it scannable and actionable."
     )
 
     prompt = (
-        f"Generate a morning market briefing for {today}. "
-        f"Cover the most important market developments, overnight futures, "
-        f"key economic data releases, and notable corporate events. "
-        f"Format it as a clean, readable briefing suitable for a Telegram message."
+        f"Generate a {slot_desc} market briefing for {today} ({time_str}).\n\n"
+        f"Search the web for the latest financial news, market moves, economic data, "
+        f"and corporate events as of right now.\n"
+        f"{market_data}"
+        f"{watchlist_context}\n\n"
+        f"Combine the above real data with your web search results into a concise, "
+        f"actionable briefing. Include specific numbers, prices, and percentages."
     )
 
-    await _send_ai_response(update, f"📋 Morning Briefing — {today}", prompt, system)
+    await _send_ai_response(
+        update, f"📋 {label} Briefing — {today} {time_str}", prompt, system,
+        use_search=True
+    )
 
 
 # --- /nongaap ---
@@ -97,26 +218,32 @@ async def nongaap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Could not find recent 8-K filing for {ticker}")
         return
 
+    today = datetime.now(ET).strftime("%Y-%m-%d")
+
     system = (
-        "You are a financial analyst specializing in extracting non-GAAP metrics from earnings releases. "
-        "Extract and present the following if available: "
-        "Non-GAAP EPS, Adjusted EBITDA, Adjusted Operating Income, Free Cash Flow, "
-        "Adjusted Revenue, and any other key non-GAAP metrics the company reports. "
-        "Present as a clean table. Note any significant reconciliation items."
+        f"You are a financial analyst specializing in non-GAAP metrics. Today is {today}. "
+        f"Extract and present: Non-GAAP EPS, Adjusted EBITDA, Adjusted Operating Income, "
+        f"Free Cash Flow, Adjusted Revenue, and other key non-GAAP metrics. "
+        f"Present as a clean table. Note significant reconciliation items. "
+        f"Supplement with web search for the latest earnings release if the filing text is incomplete."
     )
 
     prompt = (
         f"Analyze this 8-K filing excerpt for {ticker} and extract all non-GAAP metrics:\n\n"
-        f"{filing_text[:6000]}"
+        f"{filing_text[:6000]}\n\n"
+        f"Also search the web for {ticker}'s most recent earnings release for additional non-GAAP data."
     )
 
-    await _send_ai_response(update, f"{ticker} — Non-GAAP Metrics (Latest 8-K)", prompt, system)
+    await _send_ai_response(
+        update, f"{ticker} — Non-GAAP Metrics (Latest 8-K)", prompt, system,
+        use_search=True
+    )
 
 
 # --- /x ---
 
 async def x_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """X/Twitter search with AI digest."""
+    """X/Twitter search with AI digest. Uses web search for real-time data."""
     if not context.args:
         await update.message.reply_text("Usage: /x QUERY [hours]\nExample: /x SaaS 72")
         return
@@ -131,31 +258,44 @@ async def x_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if err:
         await update.message.reply_text(err)
         return
-    await update.message.reply_text(f"Analyzing X discourse for '{query}' ({hours}h window)... (15-30s)")
+
+    now_et = datetime.now(ET)
+    today = now_et.strftime("%Y-%m-%d")
+    time_str = now_et.strftime("%I:%M %p ET")
+
+    await update.message.reply_text(f"Searching X/web for '{query}' ({hours}h)... (15-30s)")
 
     system = (
-        "You are a financial intelligence analyst who synthesizes social media discussions into actionable briefings. "
-        "You produce Signal Digests from X/Twitter posts. Format your output with:\n"
-        "- Sentiment score (1-5)\n"
-        "- Material news & catalysts\n"
-        "- Sentiment balance (bullish vs bearish breakdown with ratio)\n"
-        "- Notable accounts and their positions\n"
-        "- Emerging narratives\n"
-        "- Volume & velocity assessment\n"
-        "- Key disagreements\n"
-        "Use markdown headers. Mention specific account handles where relevant. "
-        "Be specific about follower counts and engagement metrics where available."
+        f"You are a financial intelligence analyst. Today is {today}, {time_str}. "
+        f"You produce Signal Digests by searching the web for recent X/Twitter posts, "
+        f"financial news, and social media sentiment about a given topic.\n\n"
+        f"Format your output with:\n"
+        f"- Sentiment score (1-5)\n"
+        f"- Material news & catalysts (from real sources — cite URLs or sources)\n"
+        f"- Sentiment balance (bullish vs bearish with ratio)\n"
+        f"- Notable accounts and their positions\n"
+        f"- Emerging narratives\n"
+        f"- Volume & velocity assessment\n"
+        f"- Key disagreements\n"
+        f"Use headers. Mention specific account handles. "
+        f"IMPORTANT: Use your web search to find REAL, CURRENT posts and discussions "
+        f"from today ({today}) or the last {hours} hours. Do not fabricate posts or handles."
     )
 
     prompt = (
-        f"Create an X/Twitter Signal Digest for the query '{query}' covering the last {hours} hours. "
-        f"Based on your knowledge, analyze what the current discourse on X/Twitter looks like around this topic. "
+        f"Search the web for recent X/Twitter posts, discussions, and financial commentary "
+        f"about '{query}' from the last {hours} hours (as of {today} {time_str}).\n\n"
+        f"Search for: '{query} site:x.com OR site:twitter.com' and "
+        f"'{query} stock sentiment {today}'\n\n"
+        f"Create a Signal Digest with real, sourced information. "
         f"Focus on financial/investment-relevant discussions. "
-        f"Identify key accounts, sentiment shifts, and actionable signals. "
-        f"Format as a comprehensive signal digest."
+        f"If you can't find specific X posts, use other financial news sources and note that."
     )
 
-    await _send_ai_response(update, f"{query} — X Signal Digest ({hours}h)", prompt, system)
+    await _send_ai_response(
+        update, f"{query} — X Signal Digest ({hours}h)", prompt, system,
+        use_search=True
+    )
 
 
 # --- /summarize ---
@@ -228,19 +368,27 @@ async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data_block = "\n\n".join(data_parts)
 
+    today = datetime.now(ET).strftime("%Y-%m-%d")
+
     system = (
-        "You are a senior equity research analyst. Provide a concise executive summary "
-        "of a company's financial health based on the data provided. Cover:\n"
-        "1. Revenue trajectory and growth quality\n"
-        "2. Margin trends (expanding/contracting and why it matters)\n"
-        "3. Valuation assessment (cheap/fair/expensive vs growth)\n"
-        "4. Key takeaway in one sentence\n"
-        "Be direct and specific. Use numbers from the data. Keep it under 300 words."
+        f"You are a senior equity research analyst. Today is {today}. "
+        f"Provide a concise executive summary of a company's financial health "
+        f"based on the data provided AND any recent developments you can find via web search. Cover:\n"
+        f"1. Revenue trajectory and growth quality\n"
+        f"2. Margin trends (expanding/contracting and why it matters)\n"
+        f"3. Valuation assessment (cheap/fair/expensive vs growth)\n"
+        f"4. Recent news/catalysts that could change the outlook\n"
+        f"5. Key takeaway in one sentence\n"
+        f"Use the hard data provided below, supplemented by real-time web search. Keep under 400 words."
     )
 
-    prompt = f"Provide an executive financial summary for {ticker} based on this data:\n\n{data_block}"
+    prompt = (
+        f"Provide an executive financial summary for {ticker} based on this data:\n\n{data_block}\n\n"
+        f"Also search the web for any recent news, analyst actions, or developments for {ticker} "
+        f"as of {today} that could affect the outlook."
+    )
 
-    await _send_ai_response(update, f"{ticker} — Financial Summary", prompt, system)
+    await _send_ai_response(update, f"{ticker} — Financial Summary", prompt, system, use_search=True)
 
 
 # --- /thesis ---
@@ -295,22 +443,27 @@ async def thesis(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context_str = "\n".join(data_parts) if data_parts else "No specific data available."
 
+    today = datetime.now(ET).strftime("%Y-%m-%d")
+
     system = (
-        "You are a senior equity analyst writing an investment thesis. "
-        "Present a balanced BULL CASE and BEAR CASE for the stock. "
-        "For each case, provide 3-4 specific arguments with reasoning. "
-        "End with a 'Key Risk' and 'Key Catalyst' section. "
-        "Be specific and use the financial data provided. "
-        "Format with clear headers: ## Bull Case, ## Bear Case, ## Key Risk, ## Key Catalyst"
+        f"You are a senior equity analyst. Today is {today}. "
+        f"Write an investment thesis using the financial data provided AND real-time web search. "
+        f"Present a balanced BULL CASE and BEAR CASE.\n"
+        f"For each case, provide 3-4 specific arguments with reasoning.\n"
+        f"End with 'Key Risk' and 'Key Catalyst' sections.\n"
+        f"IMPORTANT: Incorporate recent news, analyst actions, competitive developments, "
+        f"and earnings commentary found via web search. Cite sources where possible.\n"
+        f"Format: ## Bull Case, ## Bear Case, ## Key Risk, ## Key Catalyst"
     )
 
     prompt = (
         f"Write a bull/bear investment thesis for {ticker}.\n\n"
         f"Financial context:\n{context_str}\n\n"
-        f"Provide specific, data-driven arguments for both sides."
+        f"Search the web for recent analyst reports, news, and competitive developments "
+        f"for {ticker} as of {today}. Incorporate real findings into both bull and bear cases."
     )
 
-    await _send_ai_response(update, f"{ticker} — Investment Thesis", prompt, system)
+    await _send_ai_response(update, f"{ticker} — Investment Thesis", prompt, system, use_search=True)
 
 
 # --- /news ---
@@ -339,7 +492,9 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Fetch real headlines from yfinance
     headlines = get_news(ticker, max_items=15)
-    today = datetime.now().strftime("%Y-%m-%d")
+    now_et = datetime.now(ET)
+    today = now_et.strftime("%Y-%m-%d")
+    time_str = now_et.strftime("%I:%M %p ET")
 
     headlines_text = ""
     if headlines:
@@ -350,31 +505,25 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
         headlines_text = "\n".join(lines)
 
     system = (
-        "You are a financial news analyst. Today's date is " + today + ". "
-        "Analyze the provided news headlines and summarize the most important "
-        "developments for this company. For each key story:\n"
-        "- Explain what happened and why it matters for the stock\n"
-        "- Note the potential impact (bullish/bearish/neutral)\n"
-        "- Flag anything that could materially move the stock with ⚠️\n"
-        "If the headlines are sparse, supplement with your knowledge of very recent events. "
-        "Format as bullet points grouped by theme. Be concise."
+        f"You are a financial news analyst. Today is {today}, {time_str}. "
+        f"Analyze the provided news headlines AND search the web for additional "
+        f"recent news about this company. For each key story:\n"
+        f"- Explain what happened and why it matters for the stock\n"
+        f"- Note the potential impact (bullish/bearish/neutral)\n"
+        f"- Flag anything that could materially move the stock with ⚠️\n"
+        f"IMPORTANT: Supplement yfinance headlines with real-time web search results. "
+        f"Prioritize news from TODAY ({today}). Be concise."
     )
 
-    if headlines_text:
-        prompt = (
-            f"Here are the latest news headlines for {company_name} ({ticker}):\n\n"
-            f"{headlines_text}\n\n"
-            f"Provide a concise news digest analyzing these headlines. "
-            f"Focus on what matters most for the stock."
-        )
-    else:
-        prompt = (
-            f"Provide a news digest for {company_name} ({ticker}) as of {today}. "
-            f"Cover the most recent and significant developments. "
-            f"Focus on material, stock-moving news."
-        )
+    prompt = (
+        f"Here are news headlines for {company_name} ({ticker}) from yfinance:\n\n"
+        f"{headlines_text or '(no headlines from yfinance)'}\n\n"
+        f"Now search the web for the latest news about {company_name} ({ticker}) "
+        f"as of {today}. Combine all sources into a concise news digest. "
+        f"Focus on what matters most for the stock."
+    )
 
-    await _send_ai_response(update, f"{ticker} — News Digest", prompt, system)
+    await _send_ai_response(update, f"{ticker} — News Digest", prompt, system, use_search=True)
 
 
 async def _news_watchlist(update: Update):
@@ -388,7 +537,9 @@ async def _news_watchlist(update: Update):
         f"Fetching news for {len(tickers)} watchlist tickers... (30-60s)"
     )
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    now_et = datetime.now(ET)
+    today = now_et.strftime("%Y-%m-%d")
+    time_str = now_et.strftime("%I:%M %p ET")
 
     # Fetch real headlines for each ticker
     all_headlines = []
@@ -405,31 +556,29 @@ async def _news_watchlist(update: Update):
     ticker_list = ", ".join(tickers)
 
     system = (
-        "You are a financial news analyst covering a portfolio of stocks. "
-        "Today's date is " + today + ". "
-        "Analyze the provided news headlines and produce a consolidated digest. "
-        "For each company with notable news:\n"
-        "- Use the ticker as a header\n"
-        "- Summarize the 1-2 most important stories and their stock impact\n"
-        "- Flag anything material with ⚠️\n"
-        "Skip tickers with no notable news. "
-        "End with a 'Market-Wide Themes' section covering trends affecting multiple names. "
-        "Be concise."
+        f"You are a financial news analyst covering a portfolio of stocks. "
+        f"Today is {today}, {time_str}. "
+        f"Analyze the provided headlines AND search the web for additional breaking news. "
+        f"For each company with notable news:\n"
+        f"- Use the ticker as a header\n"
+        f"- Summarize the 1-2 most important stories and their stock impact\n"
+        f"- Flag anything material with ⚠️\n"
+        f"Skip tickers with no notable news. "
+        f"End with 'Market-Wide Themes' covering trends affecting multiple names. "
+        f"Prioritize TODAY's ({today}) news. Be concise."
     )
 
-    if headlines_block:
-        prompt = (
-            f"Here are recent news headlines for my watchlist:\n{headlines_block}\n\n"
-            f"Provide a consolidated news digest. Focus on the most material stories. "
-            f"Skip tickers with routine/non-material news."
-        )
-    else:
-        prompt = (
-            f"Provide a consolidated news digest for these watchlist tickers: {ticker_list}\n\n"
-            f"Cover only the most material, stock-moving developments as of {today}."
-        )
+    prompt = (
+        f"Here are recent news headlines for my watchlist:\n{headlines_block or '(limited headlines)'}\n\n"
+        f"Also search the web for breaking news about these watchlist tickers: {ticker_list}\n\n"
+        f"Provide a consolidated news digest as of {today} {time_str}. "
+        f"Focus on the most material stories. Skip tickers with routine/non-material news."
+    )
 
-    await _send_ai_response(update, f"Watchlist News — {len(tickers)} tickers", prompt, system)
+    await _send_ai_response(
+        update, f"Watchlist News — {len(tickers)} tickers", prompt, system,
+        use_search=True
+    )
 
 
 # --- Helper ---

@@ -36,7 +36,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/earnings TICKER — Earnings dates + surprises\n"
         "/dividend TICKER — Dividend history &amp; safety\n\n"
         "<b>AI-Powered (Gemini)</b>\n"
-        "/brief          — Morning market briefing\n"
+        "/brief [am|noon|pm] — Market briefing\n"
         "/nongaap TICKER — Non-GAAP from latest 8-K\n"
         "/x QUERY [hrs]  — X/Twitter signal digest\n"
         "/summarize TICKER — Full financial summary\n"
