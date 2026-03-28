@@ -39,12 +39,18 @@ def auto_link_tickers_to_theme(theme: dict) -> list[str]:
         f"Theme: {theme['name']}\n"
         f"Description: {theme.get('description', '')}\n\n"
         f"Watchlist tickers: {ticker_list}\n\n"
-        f"Which of these tickers are directly relevant to this investment theme? "
+        f"Which of these tickers have a DIRECT, PRIMARY relationship to this theme? "
+        f"Be VERY selective — only include companies where this theme is a core driver "
+        f"of their business or stock price. Do NOT include a ticker just because it's "
+        f"tangentially affected. Max 8 tickers.\n\n"
         f"Reply with ONLY a comma-separated list of tickers, nothing else. "
         f"If none are relevant, reply NONE."
     )
 
-    result = ask_ai(prompt, system="Reply with only ticker symbols, comma-separated. No explanation.")
+    result = ask_ai(
+        prompt,
+        system="Be extremely selective. Only pick tickers where this theme is a PRIMARY business driver. Max 8."
+    )
     if not result or result.startswith("[") or "NONE" in result.upper():
         return theme.get("tickers", [])
 
@@ -77,13 +83,21 @@ def auto_link_all_themes() -> dict[str, list[str]]:
         f"Here are investment themes and a watchlist of tickers.\n\n"
         f"THEMES:\n{themes_block}\n\n"
         f"TICKERS: {ticker_list}\n\n"
-        f"For each theme, list the relevant tickers from the watchlist.\n"
+        f"For each theme, list ONLY the tickers where this theme is a PRIMARY driver "
+        f"of their business or stock price. Be VERY selective:\n"
+        f"- 'Semiconductor Supply Chain' → chip companies only, NOT software companies\n"
+        f"- 'Monetary Policy' → banks/financials only, NOT every stock affected by rates\n"
+        f"- 'AI Infrastructure' → companies building/selling AI infra, NOT just AI users\n"
+        f"- Max 6-8 tickers per theme. Most themes should have 3-5.\n\n"
         f"Format: THEME NAME: TICK1, TICK2, TICK3\n"
         f"One line per theme. Only use tickers from the watchlist. "
         f"If no tickers match, write: THEME NAME: NONE"
     )
 
-    result = ask_ai(prompt, system="Reply with only the formatted list. No explanation or preamble.")
+    result = ask_ai(
+        prompt,
+        system="Be extremely selective. Each ticker should have this theme as a PRIMARY business driver. Max 6-8 per theme."
+    )
     if not result or result.startswith("["):
         return {}
 

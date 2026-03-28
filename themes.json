@@ -1,20 +1,62 @@
 [
   {
-    "name": "AI Infrastructure",
-    "description": "GPU demand, data center buildout, AI chip competition",
-    "tickers": ["NVDA", "AMD", "AVGO", "MSFT", "GOOGL"],
+    "name": "AI Adoption & Enterprise Implementation",
+    "description": "Productivity gains, ROI evidence, real-world use cases across industries",
+    "tickers": [],
     "added": "2026-03-28"
   },
   {
-    "name": "Mag 7 Rotation",
-    "description": "Relative performance shifts among mega-cap tech",
-    "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"],
+    "name": "AI Infrastructure Economics",
+    "description": "Datacenter buildout, power demand, capital expenditure cycles, hyperscaler spending",
+    "tickers": [],
     "added": "2026-03-28"
   },
   {
-    "name": "Rate Cut Cycle",
-    "description": "Fed policy path and impact on growth vs value",
-    "tickers": ["JPM", "V", "HD"],
+    "name": "Labor Market Transformation",
+    "description": "AI displacement effects, wage dynamics, job creation vs destruction, white-collar impact",
+    "tickers": [],
+    "added": "2026-03-28"
+  },
+  {
+    "name": "US-China Geopolitics & Tech Competition",
+    "description": "Semiconductor restrictions, supply chain decoupling, diplomatic developments",
+    "tickers": [],
+    "added": "2026-03-28"
+  },
+  {
+    "name": "Energy & Power Markets",
+    "description": "Grid constraints, AI-driven electricity demand, nuclear renaissance, renewable buildout",
+    "tickers": [],
+    "added": "2026-03-28"
+  },
+  {
+    "name": "Monetary Policy & Macro Conditions",
+    "description": "Fed decisions, inflation dynamics, credit markets, recession signals",
+    "tickers": [],
+    "added": "2026-03-28"
+  },
+  {
+    "name": "AI Capabilities & Model Advances",
+    "description": "New model releases, benchmark progress, scaling debates, open vs closed source",
+    "tickers": [],
+    "added": "2026-03-28"
+  },
+  {
+    "name": "Semiconductor Supply Chain",
+    "description": "NVIDIA dominance, memory markets, advanced packaging, TSMC dependencies",
+    "tickers": [],
+    "added": "2026-03-28"
+  },
+  {
+    "name": "Trade Policy & Economic Nationalism",
+    "description": "Tariffs, industrial policy, reshoring, government intervention in markets",
+    "tickers": [],
+    "added": "2026-03-28"
+  },
+  {
+    "name": "Financial Innovation & Digital Assets",
+    "description": "Stablecoins, tokenization, fintech disruption, regulatory developments",
+    "tickers": [],
     "added": "2026-03-28"
   }
 ]
